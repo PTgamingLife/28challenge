@@ -1,6 +1,44 @@
 // ===== 第5頁：小老師對話（寶哥語氣，真 AI 回覆） =====
 App._coachHistory = []; // {role, content}
 
+const DAILY_LIMIT = 5;
+
+function getTodayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function getQuotaKey() {
+  return `sprint28_coach_${App.me.id}_${getTodayStr()}`;
+}
+
+function getDailyCount() {
+  return parseInt(localStorage.getItem(getQuotaKey()) || '0', 10);
+}
+
+function incrementDailyCount() {
+  const key = getQuotaKey();
+  const count = getDailyCount() + 1;
+  localStorage.setItem(key, String(count));
+  return count;
+}
+
+function updateQuotaUI() {
+  const count = getDailyCount();
+  const remaining = Math.max(0, DAILY_LIMIT - count);
+  const el = $('#coachQuota');
+  if (!el) return;
+  el.textContent = `今日剩餘提問：${remaining}／${DAILY_LIMIT} 次`;
+  el.className = 'coach-quota' + (remaining === 0 ? ' quota-empty' : remaining <= 2 ? ' quota-low' : '');
+
+  const input = $('#coachInput');
+  const sendBtn = $('#coachSend');
+  const locked = remaining === 0;
+  if (input) input.disabled = locked;
+  if (sendBtn) sendBtn.disabled = locked;
+  $$('#quickQ button').forEach((b) => { b.disabled = locked; });
+}
+
 App.renderCoach = function () {
   const wrap = $('#page-coach');
   if (wrap.dataset.ready) { scrollFeed(); return; }
@@ -11,6 +49,7 @@ App.renderCoach = function () {
         <span class="ava">🧑‍🏫</span>
         <div><b>小老師（寶哥）</b><small>領導教練・有任何事業問題都可以問我</small></div>
       </div>
+      <div class="coach-quota" id="coachQuota"></div>
       <div class="coach-feed" id="coachFeed"></div>
       <div class="coach-input">
         <input id="coachInput" placeholder="輸入你的問題…" maxlength="500" />
@@ -31,6 +70,8 @@ App.renderCoach = function () {
 
   $('#coachSend').onclick = sendCoach;
   $('#coachInput').onkeydown = (e) => { if (e.key === 'Enter') sendCoach(); };
+
+  updateQuotaUI();
 
   if (!App._coachHistory.length) {
     pushMsg('bot', `${App.me.name}，很高興你來找我！🔥\n\n我是小老師。這 28 天的挑戰路上，無論是心態、邀約、跟進還是被拒絕，任何卡關都可以問我。我們一起把這 20 位顧客拿下！\n\n你今天遇到什麼狀況呢？`);
@@ -58,8 +99,16 @@ async function sendCoach() {
   const input = $('#coachInput');
   const text = input.value.trim();
   if (!text) return;
+
+  if (getDailyCount() >= DAILY_LIMIT) {
+    pushMsg('bot', '你今天的 5 次提問額度已用完囉！好好消化今天學到的，明天再來找我。加油！🌙');
+    return;
+  }
+
   input.value = '';
   pushMsg('user', text);
+  incrementDailyCount();
+  updateQuotaUI();
 
   const f = $('#coachFeed');
   const typing = document.createElement('div');
