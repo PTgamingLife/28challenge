@@ -1,18 +1,48 @@
-// ===== 第2頁：愛心漂浮（每顆 = 當天完成任務的夥伴） =====
+// ===== 第2頁：愛心漂浮 + 排行榜 =====
+let heartsMode = 'hearts';
+
 App.renderHearts = async function () {
   const day = App.todayDay;
   const wrap = $('#page-hearts');
   wrap.innerHTML = `
     <div class="day-nav">
-      <span style="font-weight:900;color:var(--blue-900)">💗 Day ${day} 完成任務的夥伴</span>
+      <span style="font-weight:900;color:var(--blue-900)" id="heartsTitle"></span>
       <button class="btn btn-ghost btn-sm" id="heartsRefresh"><span>🔄 更新</span></button>
     </div>
+    <div class="seg" id="heartsSeg">
+      <button data-m="hearts">💗 今日愛心</button>
+      <button data-m="rank">🏆 排行榜</button>
+    </div>
+    <div id="heartsContent"></div>`;
+
+  $('#heartsRefresh').onclick = App.renderHearts;
+  $$('#heartsSeg button').forEach((b) => {
+    b.classList.toggle('on', b.dataset.m === heartsMode);
+    b.onclick = () => {
+      heartsMode = b.dataset.m;
+      $$('#heartsSeg button').forEach((x) => x.classList.toggle('on', x === b));
+      syncTitle(day);
+      heartsMode === 'hearts' ? renderHeartsView(day) : renderLeaderboard();
+    };
+  });
+
+  syncTitle(day);
+  heartsMode === 'hearts' ? renderHeartsView(day) : renderLeaderboard();
+};
+
+function syncTitle(day) {
+  const el = $('#heartsTitle');
+  if (el) el.textContent = heartsMode === 'hearts' ? `💗 Day ${day} 完成任務的夥伴` : '🏆 累積積分排行榜';
+}
+
+async function renderHeartsView(day) {
+  const content = $('#heartsContent');
+  content.innerHTML = `
     <div class="hearts-stage" id="heartsStage"></div>
     <div class="legend">
       <span>🌟 越亮 = 當日分數越高</span>
       <span>👆 點愛心送鼓勵</span>
     </div>`;
-  $('#heartsRefresh').onclick = App.renderHearts;
 
   const stage = $('#heartsStage');
   let entries = await App.db.dayEntries(day);
@@ -27,13 +57,12 @@ App.renderHearts = async function () {
   }
 
   const maxScore = Math.max(...entries.map((e) => e.score));
-  const W = stage.clientWidth || 360, H = stage.clientHeight || 380;
 
-  entries.forEach((e, i) => {
-    const ratio = maxScore > 0 ? e.score / maxScore : 1;        // 0..1
-    const opacity = (0.45 + ratio * 0.55).toFixed(2);            // 分數越高越不透明
-    const size = Math.round(34 + ratio * 30);                    // 34..64px
-    const glow = Math.round(4 + ratio * 22);                     // 光暈
+  entries.forEach((e) => {
+    const ratio = maxScore > 0 ? e.score / maxScore : 1;
+    const opacity = (0.45 + ratio * 0.55).toFixed(2);
+    const size = Math.round(34 + ratio * 30);
+    const glow = Math.round(4 + ratio * 22);
     const mine = e.member_id === App.me.id;
 
     const x = 8 + Math.random() * 78, y = 6 + Math.random() * 70;
@@ -47,10 +76,51 @@ App.renderHearts = async function () {
     h.onclick = (ev) => openPraise(e, ev);
     stage.appendChild(h);
   });
-};
+}
+
+async function renderLeaderboard() {
+  const content = $('#heartsContent');
+  content.innerHTML = `<div class="lb-loading">載入中…</div>`;
+
+  const rows = await App.db.allEntries();
+
+  // aggregate total score + days per member
+  const map = new Map();
+  rows.forEach((r) => {
+    if (!map.has(r.member_id)) map.set(r.member_id, { name: r.member_name, total: 0, days: 0 });
+    const m = map.get(r.member_id);
+    m.total += r.score;
+    m.days++;
+  });
+  const ranked = [...map.values()].sort((a, b) => b.total - a.total);
+
+  if (!ranked.length) {
+    content.innerHTML = `<div class="hearts-empty" style="height:200px"><p>還沒有任何成績，快去登記吧！</p></div>`;
+    return;
+  }
+
+  const MEDALS = ['🥇', '🥈', '🥉'];
+  const maxTotal = ranked[0].total || 1;
+
+  content.innerHTML = `<div class="lb-wrap">${ranked.map((m, i) => {
+    const isMine = m.name === App.me.name;
+    const medal = i < 3 ? MEDALS[i] : `<span class="lb-rank">${i + 1}</span>`;
+    const pct = Math.round((m.total / maxTotal) * 100);
+    return `<div class="lb-row${isMine ? ' lb-mine' : ''}">
+      <div class="lb-left">
+        <span class="lb-medal">${medal}</span>
+        <div class="lb-info">
+          <div class="lb-name">${App.esc(m.name)}${isMine ? ' <span class="lb-me">我</span>' : ''}</div>
+          <div class="lb-bar-wrap"><div class="lb-bar" style="width:${pct}%"></div></div>
+          <div class="lb-meta">已完成 ${m.days} 天</div>
+        </div>
+      </div>
+      <div class="lb-score">${m.total}<small> 分</small></div>
+    </div>`;
+  }).join('')}</div>`;
+}
 
 async function openPraise(entry, ev) {
-  // 點擊處愛心爆裂特效
   burstAt(ev.clientX, ev.clientY);
   const isSelf = entry.member_id === App.me.id;
   const praises = await App.db.praisesFor(entry.member_id);

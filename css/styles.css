@@ -186,6 +186,23 @@ body {
 .hearts-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--muted); gap: 8px; text-align: center; padding: 20px; }
 .legend { display: flex; gap: 14px; justify-content: center; font-size: 12px; color: var(--muted); margin-top: 10px; flex-wrap: wrap; }
 
+/* leaderboard */
+.lb-wrap { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 16px; }
+.lb-row { display: flex; align-items: center; justify-content: space-between; background: #fff; border-radius: 16px; padding: 12px 14px; border: 1px solid var(--blue-100); box-shadow: var(--shadow); gap: 10px; }
+.lb-row.lb-mine { background: linear-gradient(135deg, var(--blue-50), #fff); border-color: var(--blue-300); }
+.lb-left { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.lb-medal { font-size: 26px; width: 34px; text-align: center; flex-shrink: 0; }
+.lb-rank { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; background: var(--blue-100); border-radius: 50%; font-size: 13px; font-weight: 800; color: var(--blue-700); }
+.lb-info { flex: 1; min-width: 0; }
+.lb-name { font-size: 15px; font-weight: 800; color: var(--blue-900); }
+.lb-me { background: var(--blue-700); color: #fff; border-radius: 999px; font-size: 11px; font-weight: 800; padding: 1px 6px; margin-left: 4px; vertical-align: middle; }
+.lb-bar-wrap { height: 4px; background: var(--blue-100); border-radius: 999px; margin: 4px 0 3px; overflow: hidden; }
+.lb-bar { height: 100%; background: linear-gradient(90deg, var(--blue-300), var(--blue-700)); border-radius: 999px; transition: width .6s; }
+.lb-meta { font-size: 11px; color: var(--muted); }
+.lb-score { font-size: 22px; font-weight: 900; color: var(--blue-700); white-space: nowrap; flex-shrink: 0; }
+.lb-score small { font-size: 13px; font-weight: 700; }
+.lb-loading { text-align: center; padding: 40px; color: var(--muted); }
+
 /* praise modal */
 .praise-target { text-align: center; }
 .praise-target .pt-ava { font-size: 50px; }
