@@ -99,6 +99,10 @@ App.db = {
     const { data } = await App.sb.from('sprint28_praises').select('*').eq('to_member_id', memberId).order('created_at', { ascending: false }).limit(30);
     return data || [];
   },
+  async allEntries() {
+    const { data } = await App.sb.from('sprint28_daily').select('member_id, member_name, score');
+    return data || [];
+  },
 };
 
 /* ---------- 登入 ---------- */
