@@ -291,28 +291,30 @@ function showProfileReveal(bazi, member) {
   const colors = DATA28.QUADRANTS.map(q => q.color);
   $('#revealRadar').innerHTML = BAZI.buildRadarSVG(profile.percents, colors);
 
-  // Energy bars (animate after short delay)
+  // Energy bars (animate after short delay) — 50% = full bar
   const barsEl = $('#revealBars');
   barsEl.innerHTML = DATA28.QUADRANTS.map((q, i) => {
     const pct = profile.percents[i];
     const lbl = DATA28.energyLabel(pct);
+    const isMax = pct >= 50;
     return `<div class="qbar-row">
       <span class="qbar-icon">${q.icon}</span>
       <div class="qbar-info">
         <div class="qbar-name">${q.name} <span class="qbar-tag ${lbl.cls}">${lbl.text}</span></div>
         <div class="qbar-track">
-          <div class="qbar-fill" id="bar${i}" style="width:0%;--bar-color:${q.color}"></div>
+          <div class="qbar-fill" id="bar${i}" style="width:0%;--bar-color:${q.color}">${isMax ? '<span class="qbar-max">Max</span>' : ''}</div>
         </div>
       </div>
       <div class="qbar-pct">${pct}%</div>
     </div>`;
   }).join('');
 
-  // Animate bars
+  // Animate bars (cap at 100% display = 50% actual)
   setTimeout(() => {
     DATA28.QUADRANTS.forEach((_,i) => {
       const el = $(`#bar${i}`);
-      if (el) el.style.width = profile.percents[i] + '%';
+      const pct = profile.percents[i];
+      if (el) el.style.width = Math.min(pct / 50 * 100, 100) + '%';
     });
   }, 200);
 
@@ -330,7 +332,7 @@ function enterApp() {
   $('#loginOverlay').classList.add('hidden');
   $('#profileRevealOverlay').classList.add('hidden');
   const topAvatar = $('#topAvatar');
-  topAvatar.textContent = DATA28.AVATARS[App.me.avatar_index || 0];
+  topAvatar.innerHTML = `${DATA28.AVATARS[App.me.avatar_index || 0]}<span class="avatar-btn-label">個人主頁</span>`;
   $('#topName').textContent  = App.me.name;
   $('#topTeam').textContent  = App.cfg.team_name || '品牌故事';
   $('#dayBadge').textContent = `Day ${App.todayDay}`;
@@ -1122,12 +1124,14 @@ function showProfileModal() {
   const barsHtml = DATA28.QUADRANTS.map((q,i) => {
     const pct = profile.percents[i];
     const lbl = DATA28.energyLabel(pct);
+    const barW = Math.min(pct / 50 * 100, 100);
+    const isMax = pct >= 50;
     return `<div class="qbar-row">
       <span class="qbar-icon">${q.icon}</span>
       <div class="qbar-info">
         <div class="qbar-name">${q.name} <span class="qbar-tag ${lbl.cls}">${lbl.text}</span></div>
         <div class="qbar-track">
-          <div class="qbar-fill" style="width:${pct}%;--bar-color:${q.color}"></div>
+          <div class="qbar-fill" style="width:${barW}%;--bar-color:${q.color}">${isMax ? '<span class="qbar-max">Max</span>' : ''}</div>
         </div>
       </div>
       <div class="qbar-pct">${pct}%</div>
