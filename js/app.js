@@ -342,6 +342,10 @@ function enterApp() {
    Navigation
 ════════════════════════════════════════ */
 function showPage(page) {
+  if (App._galaxy3D && page !== 'social') {
+    App._galaxy3D.cleanup();
+    App._galaxy3D = null;
+  }
   App.currentPage = page;
   $$('.page').forEach(p => p.classList.add('hidden'));
   $(`#page-${page}`).classList.remove('hidden');
@@ -633,7 +637,7 @@ async function renderSocialPage() {
     </div>
   `;
 
-  buildGalaxySVG(doneMap, viewMem);
+  buildGalaxy3D(doneMap, viewMem);
 
   $('#galaxyMenuBtn').onclick = (e) => {
     e.stopPropagation();
@@ -745,6 +749,247 @@ function buildGalaxySVG(doneMap, member) {
     if (!s) return;
     el.addEventListener('click', () => showStarModal(s.day, s.task, s.response, member));
   });
+}
+
+/* ════════════════════════════════════════
+   3D 互動星系 (Three.js)
+════════════════════════════════════════ */
+function buildGalaxy3D(doneMap, member) {
+  const wrap = $('#galaxySvgWrap');
+  if (!wrap) return;
+
+  // Cleanup existing instance
+  if (App._galaxy3D) { App._galaxy3D.cleanup(); App._galaxy3D = null; }
+
+  // Fallback to SVG if Three.js unavailable
+  if (!window.THREE || !window.THREE.OrbitControls) {
+    buildGalaxySVG(doneMap, member);
+    return;
+  }
+
+  const THREE = window.THREE;
+  const W = wrap.clientWidth || 360;
+  const H = Math.round(Math.min(W, 420));
+
+  wrap.innerHTML = '';
+  const canvas = document.createElement('canvas');
+  canvas.className = 'galaxy-3d-canvas';
+  wrap.appendChild(canvas);
+
+  const hint = document.createElement('div');
+  hint.className = 'galaxy-3d-hint';
+  hint.textContent = '✋ 拖曳旋轉 · 捏合/滾輪縮放 · 點擊星星查看故事';
+  wrap.appendChild(hint);
+
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setSize(W, H);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setClearColor(0x050210, 1);
+
+  const scene = new THREE.Scene();
+
+  const camera = new THREE.PerspectiveCamera(55, W / H, 0.1, 100);
+  camera.position.set(0, 3.5, 7.5);
+
+  const controls = new THREE.OrbitControls(camera, canvas);
+  controls.target.set(0, 0, 0);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.minDistance = 2.5;
+  controls.maxDistance = 16;
+  controls.enablePan = false;
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 0.6;
+  controls.addEventListener('start', () => { controls.autoRotate = false; });
+
+  // Background star field (sphere of points)
+  {
+    const pos = [];
+    for (let i = 0; i < 600; i++) {
+      const r = 14 + Math.random() * 8;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      pos.push(r * Math.sin(phi) * Math.cos(theta), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta));
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    scene.add(new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.09 })));
+  }
+
+  const RINGS = [
+    { r: 1.25, qId: -1, hex: 0xC9A84C, days: [1, 27, 28] },
+    { r: 2.05, qId: 0,  hex: 0xC0392B, days: [2,3,4,5,6] },
+    { r: 2.78, qId: 1,  hex: 0x8E44AD, days: [7,8,9,10,11] },
+    { r: 3.48, qId: 2,  hex: 0x27AE60, days: [12,13,14,15,16] },
+    { r: 4.10, qId: 3,  hex: 0x2980B9, days: [17,18,19,20,21] },
+    { r: 4.65, qId: 4,  hex: 0xE67E22, days: [22,23,24,25,26] },
+  ];
+
+  // Orbital ring lines
+  RINGS.forEach(ring => {
+    const pts = [];
+    const segs = 128;
+    for (let i = 0; i <= segs; i++) {
+      const a = (i / segs) * Math.PI * 2;
+      pts.push(new THREE.Vector3(Math.cos(a) * ring.r, 0, Math.sin(a) * ring.r));
+    }
+    const geo = new THREE.BufferGeometry().setFromPoints(pts);
+    scene.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: ring.hex, transparent: true, opacity: 0.38 })));
+  });
+
+  // Center soft glow halo
+  scene.add(new THREE.Mesh(
+    new THREE.SphereGeometry(0.75, 24, 24),
+    new THREE.MeshBasicMaterial({ color: 0xC9A84C, transparent: true, opacity: 0.12, depthWrite: false })
+  ));
+
+  // Center dark core sphere
+  scene.add(new THREE.Mesh(
+    new THREE.SphereGeometry(0.40, 32, 32),
+    new THREE.MeshBasicMaterial({ color: 0x1C0A40 })
+  ));
+
+  // Gold equatorial ring around center
+  scene.add(new THREE.Mesh(
+    new THREE.TorusGeometry(0.50, 0.028, 8, 48),
+    new THREE.MeshBasicMaterial({ color: 0xC9A84C })
+  ));
+
+  // Helper: create emoji sprite from canvas texture
+  function makeEmojiSprite(text, sizePx) {
+    const c = document.createElement('canvas');
+    c.width = sizePx; c.height = sizePx;
+    const ctx = c.getContext('2d');
+    ctx.font = `${Math.round(sizePx * 0.65)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, sizePx / 2, sizePx * 0.57);
+    const tex = new THREE.CanvasTexture(c);
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+    const sp = new THREE.Sprite(mat);
+    sp._tex = tex;
+    return sp;
+  }
+
+  // Avatar sprite at center
+  const avSprite = makeEmojiSprite(DATA28.AVATARS[member?.avatar_index || 0], 128);
+  avSprite.scale.set(0.82, 0.82, 0.82);
+  scene.add(avSprite);
+
+  // Day stars
+  const clickableStars = [];
+  const raycaster = new THREE.Raycaster();
+  const createdTextures = [avSprite._tex];
+
+  RINGS.forEach(ring => {
+    const count = ring.days.length;
+    ring.days.forEach((day, i) => {
+      const angle = -Math.PI / 2 + (i / count) * Math.PI * 2;
+      const x = Math.cos(angle) * ring.r;
+      const z = Math.sin(angle) * ring.r;
+      const done = doneMap[day];
+      const task = DATA28.getTask(day);
+
+      if (done) {
+        const sr = ring.qId === -1 ? 0.23 : 0.17;
+
+        // Outer glow sphere
+        const glowMesh = new THREE.Mesh(
+          new THREE.SphereGeometry(sr + 0.15, 12, 12),
+          new THREE.MeshBasicMaterial({ color: ring.hex, transparent: true, opacity: 0.22, depthWrite: false })
+        );
+        glowMesh.position.set(x, 0, z);
+        scene.add(glowMesh);
+
+        // Main star sphere (clickable)
+        const starMesh = new THREE.Mesh(
+          new THREE.SphereGeometry(sr, 16, 16),
+          new THREE.MeshBasicMaterial({ color: ring.hex })
+        );
+        starMesh.position.set(x, 0, z);
+        starMesh.userData = { day, task, response: done.response };
+        scene.add(starMesh);
+        clickableStars.push(starMesh);
+
+        // Emoji icon on top of star
+        const iconSp = makeEmojiSprite(task.icon, 64);
+        const sc = sr * 2.5;
+        iconSp.scale.set(sc, sc, sc);
+        iconSp.position.set(x, 0, z);
+        scene.add(iconSp);
+        createdTextures.push(iconSp._tex);
+      } else {
+        // Dim dot for not-yet-done days
+        const dot = new THREE.Mesh(
+          new THREE.SphereGeometry(0.065, 8, 8),
+          new THREE.MeshBasicMaterial({ color: ring.hex, transparent: true, opacity: 0.22 })
+        );
+        dot.position.set(x, 0, z);
+        scene.add(dot);
+      }
+    });
+  });
+
+  // Click / tap star detection (distinguish drag from tap)
+  let pointerDownXY = null;
+  canvas.addEventListener('pointerdown', e => { pointerDownXY = { x: e.clientX, y: e.clientY }; });
+  canvas.addEventListener('pointerup', e => {
+    if (!pointerDownXY) return;
+    const dx = e.clientX - pointerDownXY.x, dy = e.clientY - pointerDownXY.y;
+    pointerDownXY = null;
+    if (dx * dx + dy * dy > 64) return; // drag, skip
+    const rect = canvas.getBoundingClientRect();
+    raycaster.setFromCamera(
+      new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1
+      ),
+      camera
+    );
+    const hits = raycaster.intersectObjects(clickableStars);
+    if (hits.length) {
+      const { day, task, response } = hits[0].object.userData;
+      showStarModal(day, task, response, member);
+    }
+  });
+
+  // Render loop with star pulse animation
+  let animId;
+  let tick = 0;
+  function animate() {
+    animId = requestAnimationFrame(animate);
+    tick += 0.022;
+    clickableStars.forEach((s, idx) => {
+      s.scale.setScalar(1 + 0.08 * Math.sin(tick + idx * 0.9));
+    });
+    controls.update();
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  // Responsive resize
+  function onResize() {
+    const nW = wrap.clientWidth || 360;
+    renderer.setSize(nW, H);
+    camera.aspect = nW / H;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', onResize);
+
+  // Cleanup for tab-switch
+  App._galaxy3D = {
+    cleanup() {
+      cancelAnimationFrame(animId);
+      window.removeEventListener('resize', onResize);
+      controls.dispose();
+      createdTextures.forEach(t => t && t.dispose());
+      scene.traverse(obj => {
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) obj.material.dispose();
+      });
+      renderer.dispose();
+    }
+  };
 }
 
 async function showStarModal(day, task, response, member) {
