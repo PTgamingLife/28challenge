@@ -752,16 +752,14 @@ function buildGalaxySVG(doneMap, member) {
 }
 
 /* ════════════════════════════════════════
-   3D 互動星系 (Three.js)
+   3D 互動星系 (Three.js) — 行星持續公轉
 ════════════════════════════════════════ */
 function buildGalaxy3D(doneMap, member) {
   const wrap = $('#galaxySvgWrap');
   if (!wrap) return;
 
-  // Cleanup existing instance
   if (App._galaxy3D) { App._galaxy3D.cleanup(); App._galaxy3D = null; }
 
-  // Fallback to SVG if Three.js unavailable
   if (!window.THREE || !window.THREE.OrbitControls) {
     buildGalaxySVG(doneMap, member);
     return;
@@ -787,7 +785,6 @@ function buildGalaxy3D(doneMap, member) {
   renderer.setClearColor(0x050210, 1);
 
   const scene = new THREE.Scene();
-
   const camera = new THREE.PerspectiveCamera(55, W / H, 0.1, 100);
   camera.position.set(0, 3.5, 7.5);
 
@@ -799,10 +796,10 @@ function buildGalaxy3D(doneMap, member) {
   controls.maxDistance = 16;
   controls.enablePan = false;
   controls.autoRotate = true;
-  controls.autoRotateSpeed = 0.6;
+  controls.autoRotateSpeed = 0.5;
   controls.addEventListener('start', () => { controls.autoRotate = false; });
 
-  // Background star field (sphere of points)
+  // Background star field
   {
     const pos = [];
     for (let i = 0; i < 600; i++) {
@@ -816,46 +813,44 @@ function buildGalaxy3D(doneMap, member) {
     scene.add(new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.09 })));
   }
 
+  // speed (rad/frame) — inner rings orbit faster (Kepler-like)
   const RINGS = [
-    { r: 1.25, qId: -1, hex: 0xC9A84C, days: [1, 27, 28] },
-    { r: 2.05, qId: 0,  hex: 0xC0392B, days: [2,3,4,5,6] },
-    { r: 2.78, qId: 1,  hex: 0x8E44AD, days: [7,8,9,10,11] },
-    { r: 3.48, qId: 2,  hex: 0x27AE60, days: [12,13,14,15,16] },
-    { r: 4.10, qId: 3,  hex: 0x2980B9, days: [17,18,19,20,21] },
-    { r: 4.65, qId: 4,  hex: 0xE67E22, days: [22,23,24,25,26] },
+    { r: 1.25, qId: -1, hex: 0xC9A84C, speed: 0.012, days: [1, 27, 28] },
+    { r: 2.05, qId: 0,  hex: 0xC0392B, speed: 0.009, days: [2,3,4,5,6] },
+    { r: 2.78, qId: 1,  hex: 0x8E44AD, speed: 0.007, days: [7,8,9,10,11] },
+    { r: 3.48, qId: 2,  hex: 0x27AE60, speed: 0.0055, days: [12,13,14,15,16] },
+    { r: 4.10, qId: 3,  hex: 0x2980B9, speed: 0.0042, days: [17,18,19,20,21] },
+    { r: 4.65, qId: 4,  hex: 0xE67E22, speed: 0.0032, days: [22,23,24,25,26] },
   ];
 
-  // Orbital ring lines
+  // Static orbital guide lines (don't orbit)
   RINGS.forEach(ring => {
     const pts = [];
-    const segs = 128;
-    for (let i = 0; i <= segs; i++) {
-      const a = (i / segs) * Math.PI * 2;
+    for (let i = 0; i <= 128; i++) {
+      const a = (i / 128) * Math.PI * 2;
       pts.push(new THREE.Vector3(Math.cos(a) * ring.r, 0, Math.sin(a) * ring.r));
     }
-    const geo = new THREE.BufferGeometry().setFromPoints(pts);
-    scene.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: ring.hex, transparent: true, opacity: 0.38 })));
+    scene.add(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({ color: ring.hex, transparent: true, opacity: 0.32 })
+    ));
   });
 
-  // Center soft glow halo
+  // Center: glow halo + dark core + gold equatorial ring
   scene.add(new THREE.Mesh(
     new THREE.SphereGeometry(0.75, 24, 24),
     new THREE.MeshBasicMaterial({ color: 0xC9A84C, transparent: true, opacity: 0.12, depthWrite: false })
   ));
-
-  // Center dark core sphere
   scene.add(new THREE.Mesh(
     new THREE.SphereGeometry(0.40, 32, 32),
     new THREE.MeshBasicMaterial({ color: 0x1C0A40 })
   ));
-
-  // Gold equatorial ring around center
   scene.add(new THREE.Mesh(
     new THREE.TorusGeometry(0.50, 0.028, 8, 48),
     new THREE.MeshBasicMaterial({ color: 0xC9A84C })
   ));
 
-  // Helper: create emoji sprite from canvas texture
+  // Emoji sprite helper
   function makeEmojiSprite(text, sizePx) {
     const c = document.createElement('canvas');
     c.width = sizePx; c.height = sizePx;
@@ -871,17 +866,22 @@ function buildGalaxy3D(doneMap, member) {
     return sp;
   }
 
-  // Avatar sprite at center
+  // Center avatar sprite
   const avSprite = makeEmojiSprite(DATA28.AVATARS[member?.avatar_index || 0], 128);
   avSprite.scale.set(0.82, 0.82, 0.82);
   scene.add(avSprite);
 
-  // Day stars
+  // One Group per orbital ring — rotating the group orbits all planets in it
+  const orbitGroups = [];
   const clickableStars = [];
   const raycaster = new THREE.Raycaster();
   const createdTextures = [avSprite._tex];
 
   RINGS.forEach(ring => {
+    const group = new THREE.Group();
+    scene.add(group);
+    orbitGroups.push({ group, speed: ring.speed });
+
     const count = ring.days.length;
     ring.days.forEach((day, i) => {
       const angle = -Math.PI / 2 + (i / count) * Math.PI * 2;
@@ -893,51 +893,46 @@ function buildGalaxy3D(doneMap, member) {
       if (done) {
         const sr = ring.qId === -1 ? 0.23 : 0.17;
 
-        // Outer glow sphere
         const glowMesh = new THREE.Mesh(
           new THREE.SphereGeometry(sr + 0.15, 12, 12),
           new THREE.MeshBasicMaterial({ color: ring.hex, transparent: true, opacity: 0.22, depthWrite: false })
         );
         glowMesh.position.set(x, 0, z);
-        scene.add(glowMesh);
+        group.add(glowMesh);
 
-        // Main star sphere (clickable)
         const starMesh = new THREE.Mesh(
           new THREE.SphereGeometry(sr, 16, 16),
           new THREE.MeshBasicMaterial({ color: ring.hex })
         );
         starMesh.position.set(x, 0, z);
         starMesh.userData = { day, task, response: done.response };
-        scene.add(starMesh);
+        group.add(starMesh);
         clickableStars.push(starMesh);
 
-        // Emoji icon on top of star
         const iconSp = makeEmojiSprite(task.icon, 64);
-        const sc = sr * 2.5;
-        iconSp.scale.set(sc, sc, sc);
+        iconSp.scale.set(sr * 2.5, sr * 2.5, sr * 2.5);
         iconSp.position.set(x, 0, z);
-        scene.add(iconSp);
+        group.add(iconSp);
         createdTextures.push(iconSp._tex);
       } else {
-        // Dim dot for not-yet-done days
         const dot = new THREE.Mesh(
           new THREE.SphereGeometry(0.065, 8, 8),
           new THREE.MeshBasicMaterial({ color: ring.hex, transparent: true, opacity: 0.22 })
         );
         dot.position.set(x, 0, z);
-        scene.add(dot);
+        group.add(dot);
       }
     });
   });
 
-  // Click / tap star detection (distinguish drag from tap)
+  // Click / tap detection
   let pointerDownXY = null;
   canvas.addEventListener('pointerdown', e => { pointerDownXY = { x: e.clientX, y: e.clientY }; });
   canvas.addEventListener('pointerup', e => {
     if (!pointerDownXY) return;
     const dx = e.clientX - pointerDownXY.x, dy = e.clientY - pointerDownXY.y;
     pointerDownXY = null;
-    if (dx * dx + dy * dy > 64) return; // drag, skip
+    if (dx * dx + dy * dy > 64) return;
     const rect = canvas.getBoundingClientRect();
     raycaster.setFromCamera(
       new THREE.Vector2(
@@ -953,15 +948,23 @@ function buildGalaxy3D(doneMap, member) {
     }
   });
 
-  // Render loop with star pulse animation
+  // Animation loop: orbit groups + pulse + damping
   let animId;
   let tick = 0;
   function animate() {
     animId = requestAnimationFrame(animate);
     tick += 0.022;
+
+    // Rotate each ring group → planets orbit
+    orbitGroups.forEach(({ group, speed }) => {
+      group.rotation.y += speed;
+    });
+
+    // Pulse completed stars
     clickableStars.forEach((s, idx) => {
       s.scale.setScalar(1 + 0.08 * Math.sin(tick + idx * 0.9));
     });
+
     controls.update();
     renderer.render(scene, camera);
   }
@@ -976,7 +979,6 @@ function buildGalaxy3D(doneMap, member) {
   }
   window.addEventListener('resize', onResize);
 
-  // Cleanup for tab-switch
   App._galaxy3D = {
     cleanup() {
       cancelAnimationFrame(animId);
