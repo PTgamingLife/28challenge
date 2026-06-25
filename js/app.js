@@ -140,6 +140,23 @@ App.db = {
     const { data } = await App.sb.from('bazi28_members').select('id,name,avatar_index').order('created_at');
     return data || [];
   },
+  async getAIChats(day) {
+    const { data } = await App.sb.from('bazi28_ai_chats')
+      .select('role,content,created_at')
+      .eq('member_id', App.me.id).eq('day_index', day).order('created_at');
+    return data || [];
+  },
+  async countTodayUserMsg(day) {
+    const today = new Date().toISOString().slice(0, 10);
+    const { data } = await App.sb.from('bazi28_ai_chats')
+      .select('id')
+      .eq('member_id', App.me.id).eq('day_index', day).eq('role', 'user')
+      .gte('created_at', today + 'T00:00:00');
+    return (data || []).length;
+  },
+  async saveAIChat(day, role, content) {
+    await App.sb.from('bazi28_ai_chats').insert({ member_id: App.me.id, day_index: day, role, content });
+  },
   async givePraise(toId, toName, dayIndex, emoji) {
     const { error } = await App.sb.from('bazi28_praises').insert({
       from_id:App.me.id, from_name:App.me.name,
@@ -291,30 +308,28 @@ function showProfileReveal(bazi, member) {
   const colors = DATA28.QUADRANTS.map(q => q.color);
   $('#revealRadar').innerHTML = BAZI.buildRadarSVG(profile.percents, colors);
 
-  // Energy bars (animate after short delay) — 50% = full bar
+  // Energy bars (animate after short delay)
   const barsEl = $('#revealBars');
   barsEl.innerHTML = DATA28.QUADRANTS.map((q, i) => {
     const pct = profile.percents[i];
     const lbl = DATA28.energyLabel(pct);
-    const isMax = pct >= 50;
     return `<div class="qbar-row">
       <span class="qbar-icon">${q.icon}</span>
       <div class="qbar-info">
         <div class="qbar-name">${q.name} <span class="qbar-tag ${lbl.cls}">${lbl.text}</span></div>
         <div class="qbar-track">
-          <div class="qbar-fill" id="bar${i}" style="width:0%;--bar-color:${q.color}">${isMax ? '<span class="qbar-max">Max</span>' : ''}</div>
+          <div class="qbar-fill" id="bar${i}" style="width:0%;--bar-color:${q.color}"></div>
         </div>
       </div>
       <div class="qbar-pct">${pct}%</div>
     </div>`;
   }).join('');
 
-  // Animate bars (cap at 100% display = 50% actual)
+  // Animate bars
   setTimeout(() => {
     DATA28.QUADRANTS.forEach((_,i) => {
       const el = $(`#bar${i}`);
-      const pct = profile.percents[i];
-      if (el) el.style.width = Math.min(pct / 50 * 100, 100) + '%';
+      if (el) el.style.width = profile.percents[i] + '%';
     });
   }, 200);
 
@@ -332,7 +347,7 @@ function enterApp() {
   $('#loginOverlay').classList.add('hidden');
   $('#profileRevealOverlay').classList.add('hidden');
   const topAvatar = $('#topAvatar');
-  topAvatar.innerHTML = `${DATA28.AVATARS[App.me.avatar_index || 0]}<span class="avatar-btn-label">個人主頁</span>`;
+  topAvatar.textContent = DATA28.AVATARS[App.me.avatar_index || 0];
   $('#topName').textContent  = App.me.name;
   $('#topTeam').textContent  = App.cfg.team_name || '品牌故事';
   $('#dayBadge').textContent = `Day ${App.todayDay}`;
@@ -344,10 +359,6 @@ function enterApp() {
    Navigation
 ════════════════════════════════════════ */
 function showPage(page) {
-  if (App._galaxy3D && page !== 'social') {
-    App._galaxy3D.cleanup();
-    App._galaxy3D = null;
-  }
   App.currentPage = page;
   $$('.page').forEach(p => p.classList.add('hidden'));
   $(`#page-${page}`).classList.remove('hidden');
@@ -357,6 +368,151 @@ function showPage(page) {
   if (page === 'record') renderRecordPage();
   if (page === 'social') renderSocialPage();
   if (page === 'team')   renderTeamPage();
+}
+
+/* ════════════════════════════════════════
+   小老師 AI 對話
+════════════════════════════════════════ */
+async function showTeacherModal(task) {
+  const day = task.day;
+  const [chats, todayCount] = await Promise.all([
+    App.db.getAIChats(day),
+    App.db.countTodayUserMsg(day),
+  ]);
+  let remaining = Math.max(0, 5 - todayCount);
+
+  const chatHtml = chats.map(c =>
+    `<div class="teacher-msg ${c.role === 'user' ? 'teacher-msg-user' : 'teacher-msg-ai'}">
+      ${c.role === 'assistant' ? '<span class="teacher-msg-avatar">🤖</span>' : ''}
+      <div class="teacher-msg-bubble">${App.esc(c.content)}</div>
+    </div>`
+  ).join('');
+
+  App.openModal(`
+    <div class="teacher-modal-wrap">
+      <div class="teacher-modal-header">
+        <div class="teacher-modal-info">
+          <span class="teacher-modal-icon">🤖</span>
+          <div>
+            <div class="teacher-modal-title">小老師</div>
+            <div class="teacher-modal-sub">Day ${day} · ${App.esc(task.title)}</div>
+          </div>
+        </div>
+        <button class="modal-close" onclick="App.closeModal()" style="position:relative;top:0;right:0;flex-shrink:0">✕</button>
+      </div>
+      <div class="teacher-chat" id="teacherChat">
+        <div class="teacher-msg teacher-msg-ai">
+          <span class="teacher-msg-avatar">🤖</span>
+          <div class="teacher-msg-bubble">對今天的任務有什麼想問的或是要協助的呢？ 😊</div>
+        </div>
+        ${chatHtml}
+      </div>
+      <div class="teacher-footer">
+        <div class="teacher-limit" id="teacherLimit">今天還剩 <strong>${remaining}</strong> 次對話機會</div>
+        <div id="teacherInputRow">
+          ${remaining > 0 ? `
+            <div class="teacher-input-row">
+              <textarea class="teacher-input" id="teacherInput" placeholder="輸入你的問題…" rows="2"></textarea>
+              <button class="teacher-send-btn" id="teacherSendBtn">送出</button>
+            </div>` : '<div class="teacher-limit-msg">今天的對話次數已用完，明天見！🌙</div>'}
+        </div>
+      </div>
+    </div>
+  `);
+
+  const chatEl = document.getElementById('teacherChat');
+  if (chatEl) chatEl.scrollTop = chatEl.scrollHeight;
+
+  if (remaining > 0) {
+    const doSend = () => sendTeacherMessage(task, chats, () => {
+      remaining--;
+      const lEl = document.getElementById('teacherLimit');
+      if (lEl) lEl.querySelector('strong').textContent = Math.max(0, remaining);
+      if (remaining <= 0) {
+        const ir = document.getElementById('teacherInputRow');
+        if (ir) ir.innerHTML = '<div class="teacher-limit-msg">今天的對話次數已用完，明天見！🌙</div>';
+      }
+    });
+    document.getElementById('teacherSendBtn').onclick = doSend;
+    document.getElementById('teacherInput').onkeydown = (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); }
+    };
+  }
+}
+
+async function sendTeacherMessage(task, history, onSuccess) {
+  const input = document.getElementById('teacherInput');
+  const sendBtn = document.getElementById('teacherSendBtn');
+  const chatEl = document.getElementById('teacherChat');
+  if (!input || !chatEl) return;
+  const msg = input.value.trim();
+  if (!msg) return;
+
+  input.value = ''; input.disabled = true;
+  if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = '…'; }
+
+  chatEl.insertAdjacentHTML('beforeend', `
+    <div class="teacher-msg teacher-msg-user"><div class="teacher-msg-bubble">${App.esc(msg)}</div></div>
+    <div class="teacher-msg teacher-msg-ai" id="tcLoad"><span class="teacher-msg-avatar">🤖</span><div class="teacher-msg-bubble">思考中…</div></div>
+  `);
+  chatEl.scrollTop = chatEl.scrollHeight;
+  await App.db.saveAIChat(task.day, 'user', msg);
+
+  try {
+    const res = await fetch(`${window.CONFIG.SUPABASE_URL}/functions/v1/teacher-chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${window.CONFIG.SUPABASE_ANON_KEY}` },
+      body: JSON.stringify({
+        dayIndex: task.day, taskTitle: task.title, taskPrompt: task.prompt, message: msg,
+        history: history.map(h => ({ role: h.role, content: h.content })),
+      }),
+    });
+    const { reply } = await res.json();
+    document.getElementById('tcLoad')?.remove();
+    chatEl.insertAdjacentHTML('beforeend', `
+      <div class="teacher-msg teacher-msg-ai"><span class="teacher-msg-avatar">🤖</span><div class="teacher-msg-bubble">${App.esc(reply)}</div></div>
+    `);
+    chatEl.scrollTop = chatEl.scrollHeight;
+    await App.db.saveAIChat(task.day, 'assistant', reply);
+    history.push({ role: 'user', content: msg }, { role: 'assistant', content: reply });
+    onSuccess?.();
+    input.disabled = false;
+    if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = '送出'; }
+    input.focus();
+  } catch(_) {
+    document.getElementById('tcLoad')?.remove();
+    chatEl.insertAdjacentHTML('beforeend', `
+      <div class="teacher-msg teacher-msg-ai"><span class="teacher-msg-avatar">🤖</span><div class="teacher-msg-bubble">連線失敗，請重試 😢</div></div>
+    `);
+    chatEl.scrollTop = chatEl.scrollHeight;
+    input.disabled = false;
+    if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = '送出'; }
+  }
+}
+
+async function generateBrandStory() {
+  const btn = document.getElementById('aiGenBtn');
+  if (!btn) return;
+  btn.disabled = true;
+  btn.innerHTML = '<span>生成中，請稍候… ✨</span>';
+  try {
+    const res = await fetch(`${window.CONFIG.SUPABASE_URL}/functions/v1/generate-brand-story`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${window.CONFIG.SUPABASE_ANON_KEY}` },
+      body: JSON.stringify({ memberId: App.me.id, memberName: App.me.name, baziProfile: App.me.bazi_profile }),
+    });
+    if (!res.ok) throw new Error();
+    const { story } = await res.json();
+    const ta = document.getElementById('taskResponse');
+    if (ta) { ta.value = story; ta.dispatchEvent(new Event('input')); ta.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    App.toast('品牌故事已生成！你可以繼續編輯後提交。✨', 3500);
+    btn.innerHTML = '<span>✨ 重新生成</span>';
+  } catch(_) {
+    App.toast('生成失敗，請確認 AI 功能已設定');
+    btn.innerHTML = '<span>✨ AI 幫我生成品牌故事</span>';
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 /* ════════════════════════════════════════
@@ -455,8 +611,15 @@ async function renderTaskPage() {
 
     <!-- Prompt card -->
     <div class="card" id="promptCard">
-      <div class="card-title">${task.icon} 今日任務</div>
+      <div class="card-title-row">
+        <span class="card-title">${task.icon} 今日任務</span>
+        <button class="teacher-btn" id="teacherBtn">🤖 小老師</button>
+      </div>
       ${App.renderPrompt(task.prompt)}
+      ${task.type === 'brand' ? `<div class="ai-gen-section">
+        <p class="ai-gen-hint">根據你過去 27 天的所有記錄，AI 將生成你的專屬品牌故事</p>
+        <button class="btn btn-gold btn-block" id="aiGenBtn" style="margin-top:6px"><span>✨ AI 幫我生成品牌故事</span></button>
+      </div>` : ''}
     </div>
 
     <!-- Response area -->
@@ -483,6 +646,15 @@ async function renderTaskPage() {
   };
   ta.addEventListener('input', updateWC);
   updateWC();
+
+  // Teacher button
+  $('#teacherBtn').onclick = () => showTeacherModal(task);
+
+  // AI gen (Day 28)
+  if (task.type === 'brand') {
+    const aiGenBtn = $('#aiGenBtn');
+    if (aiGenBtn) aiGenBtn.onclick = generateBrandStory;
+  }
 
   // Save
   $('#saveTaskBtn').onclick = async () => {
@@ -639,7 +811,7 @@ async function renderSocialPage() {
     </div>
   `;
 
-  buildGalaxy3D(doneMap, viewMem);
+  buildGalaxySVG(doneMap, viewMem);
 
   $('#galaxyMenuBtn').onclick = (e) => {
     e.stopPropagation();
@@ -751,249 +923,6 @@ function buildGalaxySVG(doneMap, member) {
     if (!s) return;
     el.addEventListener('click', () => showStarModal(s.day, s.task, s.response, member));
   });
-}
-
-/* ════════════════════════════════════════
-   3D 互動星系 (Three.js) — 行星持續公轉
-════════════════════════════════════════ */
-function buildGalaxy3D(doneMap, member) {
-  const wrap = $('#galaxySvgWrap');
-  if (!wrap) return;
-
-  if (App._galaxy3D) { App._galaxy3D.cleanup(); App._galaxy3D = null; }
-
-  if (!window.THREE || !window.THREE.OrbitControls) {
-    buildGalaxySVG(doneMap, member);
-    return;
-  }
-
-  const THREE = window.THREE;
-  const W = wrap.clientWidth || 360;
-  const H = Math.round(Math.min(W, 420));
-
-  wrap.innerHTML = '';
-  const canvas = document.createElement('canvas');
-  canvas.className = 'galaxy-3d-canvas';
-  wrap.appendChild(canvas);
-
-  const hint = document.createElement('div');
-  hint.className = 'galaxy-3d-hint';
-  hint.textContent = '✋ 拖曳旋轉 · 捏合/滾輪縮放 · 點擊星星查看故事';
-  wrap.appendChild(hint);
-
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setSize(W, H);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setClearColor(0x050210, 1);
-
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(55, W / H, 0.1, 100);
-  camera.position.set(0, 3.5, 7.5);
-
-  const controls = new THREE.OrbitControls(camera, canvas);
-  controls.target.set(0, 0, 0);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.08;
-  controls.minDistance = 2.5;
-  controls.maxDistance = 16;
-  controls.enablePan = false;
-  controls.autoRotate = true;
-  controls.autoRotateSpeed = 0.5;
-  controls.addEventListener('start', () => { controls.autoRotate = false; });
-
-  // Background star field
-  {
-    const pos = [];
-    for (let i = 0; i < 600; i++) {
-      const r = 14 + Math.random() * 8;
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.acos(2 * Math.random() - 1);
-      pos.push(r * Math.sin(phi) * Math.cos(theta), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta));
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    scene.add(new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.09 })));
-  }
-
-  // speed (rad/frame) — inner rings orbit faster (Kepler-like)
-  const RINGS = [
-    { r: 1.25, qId: -1, hex: 0xC9A84C, speed: 0.012, days: [1, 27, 28] },
-    { r: 2.05, qId: 0,  hex: 0xC0392B, speed: 0.009, days: [2,3,4,5,6] },
-    { r: 2.78, qId: 1,  hex: 0x8E44AD, speed: 0.007, days: [7,8,9,10,11] },
-    { r: 3.48, qId: 2,  hex: 0x27AE60, speed: 0.0055, days: [12,13,14,15,16] },
-    { r: 4.10, qId: 3,  hex: 0x2980B9, speed: 0.0042, days: [17,18,19,20,21] },
-    { r: 4.65, qId: 4,  hex: 0xE67E22, speed: 0.0032, days: [22,23,24,25,26] },
-  ];
-
-  // Static orbital guide lines (don't orbit)
-  RINGS.forEach(ring => {
-    const pts = [];
-    for (let i = 0; i <= 128; i++) {
-      const a = (i / 128) * Math.PI * 2;
-      pts.push(new THREE.Vector3(Math.cos(a) * ring.r, 0, Math.sin(a) * ring.r));
-    }
-    scene.add(new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints(pts),
-      new THREE.LineBasicMaterial({ color: ring.hex, transparent: true, opacity: 0.32 })
-    ));
-  });
-
-  // Center: glow halo + dark core + gold equatorial ring
-  scene.add(new THREE.Mesh(
-    new THREE.SphereGeometry(0.75, 24, 24),
-    new THREE.MeshBasicMaterial({ color: 0xC9A84C, transparent: true, opacity: 0.12, depthWrite: false })
-  ));
-  scene.add(new THREE.Mesh(
-    new THREE.SphereGeometry(0.40, 32, 32),
-    new THREE.MeshBasicMaterial({ color: 0x1C0A40 })
-  ));
-  scene.add(new THREE.Mesh(
-    new THREE.TorusGeometry(0.50, 0.028, 8, 48),
-    new THREE.MeshBasicMaterial({ color: 0xC9A84C })
-  ));
-
-  // Emoji sprite helper
-  function makeEmojiSprite(text, sizePx) {
-    const c = document.createElement('canvas');
-    c.width = sizePx; c.height = sizePx;
-    const ctx = c.getContext('2d');
-    ctx.font = `${Math.round(sizePx * 0.65)}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, sizePx / 2, sizePx * 0.57);
-    const tex = new THREE.CanvasTexture(c);
-    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
-    const sp = new THREE.Sprite(mat);
-    sp._tex = tex;
-    return sp;
-  }
-
-  // Center avatar sprite
-  const avSprite = makeEmojiSprite(DATA28.AVATARS[member?.avatar_index || 0], 128);
-  avSprite.scale.set(0.82, 0.82, 0.82);
-  scene.add(avSprite);
-
-  // One Group per orbital ring — rotating the group orbits all planets in it
-  const orbitGroups = [];
-  const clickableStars = [];
-  const raycaster = new THREE.Raycaster();
-  const createdTextures = [avSprite._tex];
-
-  RINGS.forEach(ring => {
-    const group = new THREE.Group();
-    scene.add(group);
-    orbitGroups.push({ group, speed: ring.speed });
-
-    const count = ring.days.length;
-    ring.days.forEach((day, i) => {
-      const angle = -Math.PI / 2 + (i / count) * Math.PI * 2;
-      const x = Math.cos(angle) * ring.r;
-      const z = Math.sin(angle) * ring.r;
-      const done = doneMap[day];
-      const task = DATA28.getTask(day);
-
-      if (done) {
-        const sr = ring.qId === -1 ? 0.23 : 0.17;
-
-        const glowMesh = new THREE.Mesh(
-          new THREE.SphereGeometry(sr + 0.15, 12, 12),
-          new THREE.MeshBasicMaterial({ color: ring.hex, transparent: true, opacity: 0.22, depthWrite: false })
-        );
-        glowMesh.position.set(x, 0, z);
-        group.add(glowMesh);
-
-        const starMesh = new THREE.Mesh(
-          new THREE.SphereGeometry(sr, 16, 16),
-          new THREE.MeshBasicMaterial({ color: ring.hex })
-        );
-        starMesh.position.set(x, 0, z);
-        starMesh.userData = { day, task, response: done.response };
-        group.add(starMesh);
-        clickableStars.push(starMesh);
-
-        const iconSp = makeEmojiSprite(task.icon, 64);
-        iconSp.scale.set(sr * 2.5, sr * 2.5, sr * 2.5);
-        iconSp.position.set(x, 0, z);
-        group.add(iconSp);
-        createdTextures.push(iconSp._tex);
-      } else {
-        const dot = new THREE.Mesh(
-          new THREE.SphereGeometry(0.065, 8, 8),
-          new THREE.MeshBasicMaterial({ color: ring.hex, transparent: true, opacity: 0.22 })
-        );
-        dot.position.set(x, 0, z);
-        group.add(dot);
-      }
-    });
-  });
-
-  // Click / tap detection
-  let pointerDownXY = null;
-  canvas.addEventListener('pointerdown', e => { pointerDownXY = { x: e.clientX, y: e.clientY }; });
-  canvas.addEventListener('pointerup', e => {
-    if (!pointerDownXY) return;
-    const dx = e.clientX - pointerDownXY.x, dy = e.clientY - pointerDownXY.y;
-    pointerDownXY = null;
-    if (dx * dx + dy * dy > 64) return;
-    const rect = canvas.getBoundingClientRect();
-    raycaster.setFromCamera(
-      new THREE.Vector2(
-        ((e.clientX - rect.left) / rect.width) * 2 - 1,
-        -((e.clientY - rect.top) / rect.height) * 2 + 1
-      ),
-      camera
-    );
-    const hits = raycaster.intersectObjects(clickableStars);
-    if (hits.length) {
-      const { day, task, response } = hits[0].object.userData;
-      showStarModal(day, task, response, member);
-    }
-  });
-
-  // Animation loop: orbit groups + pulse + damping
-  let animId;
-  let tick = 0;
-  function animate() {
-    animId = requestAnimationFrame(animate);
-    tick += 0.022;
-
-    // Rotate each ring group → planets orbit
-    orbitGroups.forEach(({ group, speed }) => {
-      group.rotation.y += speed;
-    });
-
-    // Pulse completed stars
-    clickableStars.forEach((s, idx) => {
-      s.scale.setScalar(1 + 0.08 * Math.sin(tick + idx * 0.9));
-    });
-
-    controls.update();
-    renderer.render(scene, camera);
-  }
-  animate();
-
-  // Responsive resize
-  function onResize() {
-    const nW = wrap.clientWidth || 360;
-    renderer.setSize(nW, H);
-    camera.aspect = nW / H;
-    camera.updateProjectionMatrix();
-  }
-  window.addEventListener('resize', onResize);
-
-  App._galaxy3D = {
-    cleanup() {
-      cancelAnimationFrame(animId);
-      window.removeEventListener('resize', onResize);
-      controls.dispose();
-      createdTextures.forEach(t => t && t.dispose());
-      scene.traverse(obj => {
-        if (obj.geometry) obj.geometry.dispose();
-        if (obj.material) obj.material.dispose();
-      });
-      renderer.dispose();
-    }
-  };
 }
 
 async function showStarModal(day, task, response, member) {
@@ -1124,14 +1053,12 @@ function showProfileModal() {
   const barsHtml = DATA28.QUADRANTS.map((q,i) => {
     const pct = profile.percents[i];
     const lbl = DATA28.energyLabel(pct);
-    const barW = Math.min(pct / 50 * 100, 100);
-    const isMax = pct >= 50;
     return `<div class="qbar-row">
       <span class="qbar-icon">${q.icon}</span>
       <div class="qbar-info">
         <div class="qbar-name">${q.name} <span class="qbar-tag ${lbl.cls}">${lbl.text}</span></div>
         <div class="qbar-track">
-          <div class="qbar-fill" style="width:${barW}%;--bar-color:${q.color}">${isMax ? '<span class="qbar-max">Max</span>' : ''}</div>
+          <div class="qbar-fill" style="width:${pct}%;--bar-color:${q.color}"></div>
         </div>
       </div>
       <div class="qbar-pct">${pct}%</div>
