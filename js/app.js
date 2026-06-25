@@ -359,6 +359,10 @@ function enterApp() {
    Navigation
 ════════════════════════════════════════ */
 function showPage(page) {
+  if (App._galaxy3D && page !== 'social') {
+    App._galaxy3D.cleanup();
+    App._galaxy3D = null;
+  }
   App.currentPage = page;
   $$('.page').forEach(p => p.classList.add('hidden'));
   $(`#page-${page}`).classList.remove('hidden');
@@ -811,7 +815,7 @@ async function renderSocialPage() {
     </div>
   `;
 
-  buildGalaxySVG(doneMap, viewMem);
+  buildGalaxy3D(doneMap, viewMem);
 
   $('#galaxyMenuBtn').onclick = (e) => {
     e.stopPropagation();
@@ -923,6 +927,237 @@ function buildGalaxySVG(doneMap, member) {
     if (!s) return;
     el.addEventListener('click', () => showStarModal(s.day, s.task, s.response, member));
   });
+}
+
+/* ════════════════════════════════════════
+   3D 互動星系 (Three.js) — 行星持續公轉
+════════════════════════════════════════ */
+function buildGalaxy3D(doneMap, member) {
+  const wrap = $('#galaxySvgWrap');
+  if (!wrap) return;
+
+  if (App._galaxy3D) { App._galaxy3D.cleanup(); App._galaxy3D = null; }
+
+  if (!window.THREE || !window.THREE.OrbitControls) {
+    buildGalaxySVG(doneMap, member);
+    return;
+  }
+
+  const THREE = window.THREE;
+  const W = wrap.clientWidth || 360;
+  const H = Math.round(Math.min(W, 420));
+
+  wrap.innerHTML = '';
+  const canvas = document.createElement('canvas');
+  canvas.className = 'galaxy-3d-canvas';
+  wrap.appendChild(canvas);
+
+  const hint = document.createElement('div');
+  hint.className = 'galaxy-3d-hint';
+  hint.textContent = '✋ 拖曳旋轉 · 捏合/滾輪縮放 · 點擊星星查看故事';
+  wrap.appendChild(hint);
+
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setSize(W, H);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setClearColor(0x050210, 1);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(55, W / H, 0.1, 100);
+  camera.position.set(0, 3.5, 7.5);
+
+  const controls = new THREE.OrbitControls(camera, canvas);
+  controls.target.set(0, 0, 0);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.minDistance = 2.5;
+  controls.maxDistance = 16;
+  controls.enablePan = false;
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 0.5;
+  controls.addEventListener('start', () => { controls.autoRotate = false; });
+
+  // Background star field
+  {
+    const pos = [];
+    for (let i = 0; i < 600; i++) {
+      const r = 14 + Math.random() * 8;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      pos.push(r * Math.sin(phi) * Math.cos(theta), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta));
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    scene.add(new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.09 })));
+  }
+
+  const RINGS = [
+    { r: 1.25, qId: -1, hex: 0xC9A84C, speed: 0.012, days: [1, 27, 28] },
+    { r: 2.05, qId: 0,  hex: 0xC0392B, speed: 0.009, days: [2,3,4,5,6] },
+    { r: 2.78, qId: 1,  hex: 0x8E44AD, speed: 0.007, days: [7,8,9,10,11] },
+    { r: 3.48, qId: 2,  hex: 0x27AE60, speed: 0.0055, days: [12,13,14,15,16] },
+    { r: 4.10, qId: 3,  hex: 0x2980B9, speed: 0.0042, days: [17,18,19,20,21] },
+    { r: 4.65, qId: 4,  hex: 0xE67E22, speed: 0.0032, days: [22,23,24,25,26] },
+  ];
+
+  // Static orbital guide lines
+  RINGS.forEach(ring => {
+    const pts = [];
+    for (let i = 0; i <= 128; i++) {
+      const a = (i / 128) * Math.PI * 2;
+      pts.push(new THREE.Vector3(Math.cos(a) * ring.r, 0, Math.sin(a) * ring.r));
+    }
+    scene.add(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({ color: ring.hex, transparent: true, opacity: 0.32 })
+    ));
+  });
+
+  // Center: glow halo + dark core + gold equatorial ring
+  scene.add(new THREE.Mesh(
+    new THREE.SphereGeometry(0.75, 24, 24),
+    new THREE.MeshBasicMaterial({ color: 0xC9A84C, transparent: true, opacity: 0.12, depthWrite: false })
+  ));
+  scene.add(new THREE.Mesh(
+    new THREE.SphereGeometry(0.40, 32, 32),
+    new THREE.MeshBasicMaterial({ color: 0x1C0A40 })
+  ));
+  scene.add(new THREE.Mesh(
+    new THREE.TorusGeometry(0.50, 0.028, 8, 48),
+    new THREE.MeshBasicMaterial({ color: 0xC9A84C })
+  ));
+
+  function makeEmojiSprite(text, sizePx) {
+    const c = document.createElement('canvas');
+    c.width = sizePx; c.height = sizePx;
+    const ctx = c.getContext('2d');
+    ctx.font = `${Math.round(sizePx * 0.65)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, sizePx / 2, sizePx * 0.57);
+    const tex = new THREE.CanvasTexture(c);
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+    const sp = new THREE.Sprite(mat);
+    sp._tex = tex;
+    return sp;
+  }
+
+  const avSprite = makeEmojiSprite(DATA28.AVATARS[member?.avatar_index || 0], 128);
+  avSprite.scale.set(0.82, 0.82, 0.82);
+  scene.add(avSprite);
+
+  const orbitGroups = [];
+  const clickableStars = [];
+  const raycaster = new THREE.Raycaster();
+  const createdTextures = [avSprite._tex];
+
+  RINGS.forEach(ring => {
+    const group = new THREE.Group();
+    scene.add(group);
+    orbitGroups.push({ group, speed: ring.speed });
+
+    const count = ring.days.length;
+    ring.days.forEach((day, i) => {
+      const angle = -Math.PI / 2 + (i / count) * Math.PI * 2;
+      const x = Math.cos(angle) * ring.r;
+      const z = Math.sin(angle) * ring.r;
+      const done = doneMap[day];
+      const task = DATA28.getTask(day);
+
+      if (done) {
+        const sr = ring.qId === -1 ? 0.23 : 0.17;
+
+        const glowMesh = new THREE.Mesh(
+          new THREE.SphereGeometry(sr + 0.15, 12, 12),
+          new THREE.MeshBasicMaterial({ color: ring.hex, transparent: true, opacity: 0.22, depthWrite: false })
+        );
+        glowMesh.position.set(x, 0, z);
+        group.add(glowMesh);
+
+        const starMesh = new THREE.Mesh(
+          new THREE.SphereGeometry(sr, 16, 16),
+          new THREE.MeshBasicMaterial({ color: ring.hex })
+        );
+        starMesh.position.set(x, 0, z);
+        starMesh.userData = { day, task, response: done.response };
+        group.add(starMesh);
+        clickableStars.push(starMesh);
+
+        const iconSp = makeEmojiSprite(task.icon, 64);
+        iconSp.scale.set(sr * 2.5, sr * 2.5, sr * 2.5);
+        iconSp.position.set(x, 0, z);
+        group.add(iconSp);
+        createdTextures.push(iconSp._tex);
+      } else {
+        const dot = new THREE.Mesh(
+          new THREE.SphereGeometry(0.065, 8, 8),
+          new THREE.MeshBasicMaterial({ color: ring.hex, transparent: true, opacity: 0.22 })
+        );
+        dot.position.set(x, 0, z);
+        group.add(dot);
+      }
+    });
+  });
+
+  let pointerDownXY = null;
+  canvas.addEventListener('pointerdown', e => { pointerDownXY = { x: e.clientX, y: e.clientY }; });
+  canvas.addEventListener('pointerup', e => {
+    if (!pointerDownXY) return;
+    const dx = e.clientX - pointerDownXY.x, dy = e.clientY - pointerDownXY.y;
+    pointerDownXY = null;
+    if (dx * dx + dy * dy > 64) return;
+    const rect = canvas.getBoundingClientRect();
+    raycaster.setFromCamera(
+      new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1
+      ),
+      camera
+    );
+    const hits = raycaster.intersectObjects(clickableStars);
+    if (hits.length) {
+      const { day, task, response } = hits[0].object.userData;
+      showStarModal(day, task, response, member);
+    }
+  });
+
+  let animId;
+  let tick = 0;
+  function animate() {
+    animId = requestAnimationFrame(animate);
+    tick += 0.022;
+    orbitGroups.forEach(({ group, speed }) => {
+      group.rotation.y += speed;
+    });
+    clickableStars.forEach((s, idx) => {
+      s.scale.setScalar(1 + 0.08 * Math.sin(tick + idx * 0.9));
+    });
+    controls.update();
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  function onResize() {
+    const nW = wrap.clientWidth || 360;
+    renderer.setSize(nW, H);
+    camera.aspect = nW / H;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', onResize);
+
+  App._galaxy3D = {
+    cleanup() {
+      cancelAnimationFrame(animId);
+      window.removeEventListener('resize', onResize);
+      controls.dispose();
+      createdTextures.forEach(t => t && t.dispose());
+      scene.traverse(obj => {
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) obj.material.dispose();
+      });
+      renderer.dispose();
+    }
+  };
 }
 
 async function showStarModal(day, task, response, member) {

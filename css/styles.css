@@ -976,8 +976,8 @@ body {
   flex-shrink: 0;
 }
 
-/* SVG canvas */
-.galaxy-svg-wrap { padding: 4px; }
+/* SVG / 3D canvas */
+.galaxy-svg-wrap { padding: 0; overflow: hidden; border-radius: 0 0 var(--radius) var(--radius); }
 .galaxy-svg {
   width: 100%;
   height: auto;
@@ -987,6 +987,23 @@ body {
 }
 .gstar { transition: opacity 0.15s; }
 .gstar:hover { opacity: 0.75 !important; }
+.galaxy-3d-canvas {
+  display: block;
+  width: 100% !important;
+  border-radius: 0 0 14px 14px;
+  touch-action: none;
+  cursor: grab;
+  outline: none;
+}
+.galaxy-3d-canvas:active { cursor: grabbing; }
+.galaxy-3d-hint {
+  text-align: center;
+  font-size: 11px;
+  color: rgba(201,168,76,0.5);
+  padding: 6px 0 10px;
+  letter-spacing: 0.5px;
+  pointer-events: none;
+}
 
 /* ══════════════════════════════════════
    AI Era Advantage Card (Day 28)
@@ -1157,6 +1174,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 10px;
 }
 .card-title-row .card-title { margin-bottom: 0; }
@@ -1164,15 +1183,18 @@ body {
   background: linear-gradient(135deg, #2C1654, #1A0F00);
   color: #C9A84C;
   border: 2px solid #C9A84C;
-  border-radius: 20px;
-  padding: 5px 13px;
-  font-size: 12px;
+  border-radius: 40px;
+  padding: 10px 26px;
+  font-size: 24px;
   font-weight: 800;
   cursor: pointer;
   font-family: inherit;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: keep-all;
   flex-shrink: 0;
   transition: opacity .15s;
+  line-height: 1.2;
+  text-align: center;
 }
 .teacher-btn:hover { opacity: .85; }
 
