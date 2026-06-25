@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Day 28 AI總結報告 — 預覽</title>
+  <style>
+    :root {
+      --cream:#FFF8EE; --cream-dark:#F5E8D0; --cream-mid:#FAF0DC;
+      --gold:#C9A84C; --gold-light:#E8C96A; --gold-deep:#8B6B1A;
+      --gold-glow:rgba(201,168,76,0.35);
+      --ink:#1A0F00; --ink-mid:#3D2610; --ink-light:#6B5030;
+      --white:#FFFDF7; --panel-bg:#FFFBF2;
+      --q0:#C0392B; --q1:#8E44AD; --q2:#27AE60; --q3:#2980B9; --q4:#E67E22;
+      --radius:16px; --radius-sm:10px;
+      --panel-border:3px solid var(--ink);
+      --panel-shadow:5px 5px 0 var(--ink);
+      --card-border:2px solid var(--ink);
+      --card-shadow:3px 3px 0 var(--ink);
+    }
+    *{box-sizing:border-box}
+    body{font-family:"PingFang TC","Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif;
+      background:var(--cream);color:var(--ink);margin:0;padding:20px}
+    .wrap{max-width:460px;margin:0 auto}
+    .page-title{text-align:center;font-size:13px;font-weight:800;color:var(--ink-light);
+      letter-spacing:2px;text-transform:uppercase;margin-bottom:16px}
+
+    /* ── 任務 hero ── */
+    .card-hero{background:var(--ink);border:var(--panel-border);border-radius:var(--radius);
+      padding:20px 16px;margin-bottom:14px;box-shadow:var(--panel-shadow);position:relative;overflow:hidden;color:var(--cream)}
+    .task-day-no{background:linear-gradient(135deg,var(--gold-light),var(--gold));color:var(--ink);
+      border:2px solid var(--ink);border-radius:999px;padding:4px 16px;font-size:15px;font-weight:900;
+      font-style:italic;box-shadow:2px 2px 0 var(--gold-deep);display:inline-block;margin-bottom:8px}
+    .chip{padding:4px 12px;border-radius:999px;font-size:12px;font-weight:800;color:#fff;
+      border:2px solid rgba(0,0,0,.2);background:linear-gradient(135deg,#C0392B,#8E44AD);display:inline-block;margin-left:8px}
+    .task-title{font-size:22px;font-weight:900;font-style:italic;color:var(--cream);
+      margin:8px 0 4px;line-height:1.2;text-shadow:2px 2px 0 rgba(0,0,0,.3)}
+
+    /* ── AI Era Card ── */
+    .ai-era-card{background:linear-gradient(160deg,#100820 0%,#08040F 100%);
+      border:3px solid #C9A84C;border-radius:var(--radius);
+      box-shadow:5px 5px 0 #6B4C0A,inset 0 1px 0 rgba(201,168,76,0.15);overflow:hidden;margin-bottom:14px}
+    .ai-era-header{background:linear-gradient(135deg,#C9A84C 0%,#A07828 60%,#6B4C0A 100%);
+      padding:16px 20px 14px;text-align:center}
+    .ai-era-badge{font-size:20px;margin-bottom:4px;letter-spacing:4px}
+    .ai-era-title{font-size:19px;font-weight:900;color:#1A0F00;letter-spacing:1px;
+      text-shadow:1px 1px 0 rgba(255,255,255,0.25)}
+    .ai-era-sub{font-size:11px;font-weight:700;color:rgba(26,15,0,0.65);margin-top:3px;letter-spacing:.5px}
+    .ai-era-body{padding:16px 18px 18px;color:#FFF8EE}
+    .ai-era-profile-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+    .ai-era-chip{font-size:12px;font-weight:800;padding:4px 10px;border-radius:20px;
+      border:1.5px solid;letter-spacing:.3px}
+    .ai-era-x{font-size:14px;font-weight:900;color:rgba(201,168,76,.5)}
+    .ai-era-advantage-box{background:rgba(201,168,76,.1);border-left:4px solid #C9A84C;
+      border-radius:0 var(--radius-sm) var(--radius-sm) 0;padding:12px 14px;margin-bottom:14px}
+    .ai-era-headline{font-size:22px;font-weight:900;color:#C9A84C;letter-spacing:1px;line-height:1.2}
+    .ai-era-headline-sub{font-size:13px;font-weight:700;color:rgba(201,168,76,.65);margin-top:3px}
+    .ai-era-section{margin-bottom:14px}
+    .ai-era-section-hd{font-size:11px;font-weight:900;color:#C9A84C;letter-spacing:1.5px;
+      text-transform:uppercase;margin-bottom:6px}
+    .ai-era-section-body{font-size:13px;line-height:1.75;color:rgba(255,248,238,.8)}
+    .ai-era-strategies{background:rgba(0,0,0,.3);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:14px}
+    .ai-era-strategy-item{display:flex;gap:10px;padding:7px 0;
+      border-bottom:1px solid rgba(201,168,76,.08);align-items:flex-start}
+    .ai-era-strategy-item:last-child{border-bottom:none}
+    .ai-era-strategy-num{background:#C9A84C;color:#1A0F00;font-size:10px;font-weight:900;
+      width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+      flex-shrink:0;margin-top:1px}
+    .ai-era-strategy-text{font-size:13px;line-height:1.6;color:rgba(255,248,238,.8)}
+    .ai-era-cta{background:rgba(201,168,76,.1);border:1.5px solid rgba(201,168,76,.35);
+      border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:12px}
+    .ai-era-cta-label{font-size:12px;font-weight:900;color:#C9A84C;letter-spacing:1px;margin-bottom:6px}
+    .ai-era-cta-text{font-size:13px;line-height:1.7;color:rgba(255,248,238,.85);font-weight:600}
+    .ai-era-secondary{border-top:1px solid rgba(201,168,76,.15);padding-top:12px}
+    .ai-era-secondary-label{font-size:12px;font-weight:800;letter-spacing:.5px;margin-bottom:5px}
+    .ai-era-secondary-text{font-size:12px;line-height:1.65;color:rgba(255,248,238,.6)}
+
+    /* ── Energy bars ── */
+    .card{background:var(--panel-bg);border:var(--card-border);border-radius:var(--radius);
+      padding:16px;margin-bottom:14px;box-shadow:var(--card-shadow)}
+    .card-title{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;
+      color:var(--ink-light);margin:0 0 12px}
+    .qbar-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+    .qbar-icon{font-size:18px;width:24px;flex-shrink:0;text-align:center}
+    .qbar-info{flex:1}
+    .qbar-name{font-size:13px;font-weight:800;color:var(--ink)}
+    .qbar-track{height:10px;background:var(--cream-dark);border-radius:999px;overflow:hidden;
+      margin-top:3px;border:1px solid var(--cream-dark)}
+    .qbar-fill{height:100%;border-radius:999px;
+      background:linear-gradient(90deg,var(--gold-light),var(--bar-color))}
+    .qbar-pct{font-size:12px;font-weight:800;color:var(--ink-light);width:38px;text-align:right}
+    .qbar-tag{font-size:10px;font-weight:700;padding:1px 6px;border-radius:999px;color:#fff}
+    .energy-high{background:#C0392B}
+    .energy-mid{background:#E67E22}
+    .energy-low{background:#27AE60}
+
+    .preview-note{background:rgba(201,168,76,.12);border:1.5px dashed #C9A84C;border-radius:10px;
+      padding:10px 14px;margin-bottom:16px;font-size:12px;color:var(--ink-mid);text-align:center;line-height:1.6}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="page-title">📋 Day 28 · AI總結報告 預覽</div>
+
+  <div class="preview-note">
+    ⚡ 此為<strong>模擬預覽</strong>，以「🔥 核心身份力主導型」為範例<br>
+    實際報告會根據每位用戶的八字能量圖譜自動生成
+  </div>
+
+  <!-- Hero -->
+  <div class="card-hero">
+    <div>
+      <span class="task-day-no">Day 28 / 28</span>
+      <span class="chip">品牌故事</span>
+    </div>
+    <div class="task-title">我的品牌故事</div>
+  </div>
+
+  <!-- 能量圖譜 -->
+  <div class="card">
+    <div class="card-title">⚡ 你的五大能量圖譜（範例）</div>
+    <div class="qbar-row">
+      <span class="qbar-icon">🔥</span>
+      <div class="qbar-info">
+        <div class="qbar-name">核心身份力 <span class="qbar-tag energy-high">主導能量</span></div>
+        <div class="qbar-track"><div class="qbar-fill" style="width:38%;--bar-color:#C0392B"></div></div>
+      </div>
+      <div class="qbar-pct">38%</div>
+    </div>
+    <div class="qbar-row">
+      <span class="qbar-icon">📚</span>
+      <div class="qbar-info">
+        <div class="qbar-name">智慧積累力 <span class="qbar-tag energy-mid">均衡能量</span></div>
+        <div class="qbar-track"><div class="qbar-fill" style="width:28%;--bar-color:#E67E22"></div></div>
+      </div>
+      <div class="qbar-pct">28%</div>
+    </div>
+    <div class="qbar-row">
+      <span class="qbar-icon">💎</span>
+      <div class="qbar-info">
+        <div class="qbar-name">資源駕馭力 <span class="qbar-tag energy-low">成長空間</span></div>
+        <div class="qbar-track"><div class="qbar-fill" style="width:18%;--bar-color:#27AE60"></div></div>
+      </div>
+      <div class="qbar-pct">18%</div>
+    </div>
+    <div class="qbar-row">
+      <span class="qbar-icon">✨</span>
+      <div class="qbar-info">
+        <div class="qbar-name">創意表達力 <span class="qbar-tag energy-low">成長空間</span></div>
+        <div class="qbar-track"><div class="qbar-fill" style="width:10%;--bar-color:#8E44AD"></div></div>
+      </div>
+      <div class="qbar-pct">10%</div>
+    </div>
+    <div class="qbar-row">
+      <span class="qbar-icon">🌍</span>
+      <div class="qbar-info">
+        <div class="qbar-name">社會影響力 <span class="qbar-tag energy-low">成長空間</span></div>
+        <div class="qbar-track"><div class="qbar-fill" style="width:6%;--bar-color:#2980B9"></div></div>
+      </div>
+      <div class="qbar-pct">6%</div>
+    </div>
+  </div>
+
+  <!-- AI Era Card -->
+  <div class="ai-era-card">
+    <div class="ai-era-header">
+      <div class="ai-era-badge">🤖 × 👑</div>
+      <div class="ai-era-title">你在 AI 時代的核心優勢</div>
+      <div class="ai-era-sub">基於你的八字能量圖譜，專屬計算</div>
+    </div>
+    <div class="ai-era-body">
+
+      <!-- 主次能量組合 -->
+      <div class="ai-era-profile-row">
+        <span class="ai-era-chip" style="background:#C0392B22;border-color:#C0392B;color:#C0392B">🔥 核心身份力 38%</span>
+        <span class="ai-era-x">×</span>
+        <span class="ai-era-chip" style="background:#E67E2222;border-color:#E67E22;color:#E67E22">📚 智慧積累力 28%</span>
+      </div>
+
+      <!-- 核心優勢 -->
+      <div class="ai-era-advantage-box">
+        <div class="ai-era-headline">你即品牌</div>
+        <div class="ai-era-headline-sub">個人化，AI 永遠無法複製的稀缺性</div>
+      </div>
+
+      <!-- 為什麼在AI時代特別有力 -->
+      <div class="ai-era-section">
+        <div class="ai-era-section-hd">🌐 為什麼在 AI 時代特別有力</div>
+        <div class="ai-era-section-body">在AI內容氾濫的時代，「你」這個人本身是最強的護城河。你天生的身份認同感和清晰的自我定義，讓你能建立AI永遠無法複製的個人品牌。當所有內容都可以被AI生成，唯有真實的人格和生命故事，才是市場最渴望的稀缺品。</div>
+      </div>
+
+      <!-- 核心競爭優勢 -->
+      <div class="ai-era-section">
+        <div class="ai-era-section-hd">⚡ 你的核心競爭優勢</div>
+        <div class="ai-era-section-body">你的競爭優勢不在於你做了什麼，而在於你是誰。你清晰的自我定位和獨特的生命視角，讓你能在AI同質化浪潮中脫穎而出——成為讓人選擇「這個人」而非「這個服務」的品牌。</div>
+      </div>
+
+      <!-- 四大放大策略 -->
+      <div class="ai-era-strategies">
+        <div class="ai-era-section-hd">🚀 四大放大策略</div>
+        <div class="ai-era-strategy-item">
+          <div class="ai-era-strategy-num">1</div>
+          <div class="ai-era-strategy-text">把你的生命故事轉化為品牌資產——每一個轉折、每一段掙扎都是差異化素材</div>
+        </div>
+        <div class="ai-era-strategy-item">
+          <div class="ai-era-strategy-num">2</div>
+          <div class="ai-era-strategy-text">打造「你是誰」而非「你做什麼」的品牌定位，讓人因為你這個人而選擇你</div>
+        </div>
+        <div class="ai-era-strategy-item">
+          <div class="ai-era-strategy-num">3</div>
+          <div class="ai-era-strategy-text">用AI工具擴大你的觸及和產出效率，但保持你的觀點和聲音100%原創</div>
+        </div>
+        <div class="ai-era-strategy-item">
+          <div class="ai-era-strategy-num">4</div>
+          <div class="ai-era-strategy-text">建立高辨識度的個人符號系統（風格、主張、口頭禪），形成不可複製的記憶點</div>
+        </div>
+      </div>
+
+      <!-- 第一步行動 -->
+      <div class="ai-era-cta">
+        <div class="ai-era-cta-label">🎯 你的第一步行動</div>
+        <div class="ai-era-cta-text">從今天起，每週用10分鐘記錄一個「只有你能說」的故事片段，持續積累你的個人品牌資產庫。</div>
+      </div>
+
+      <!-- 第二能量加成 -->
+      <div class="ai-era-secondary">
+        <div class="ai-era-secondary-label" style="color:#E67E22">📚 第二能量加成：複雜世界的嚮導</div>
+        <div class="ai-era-secondary-text">你的核心價值不是「知道多少」，而是「如何思考」和「如何判斷」。這是AI最難模仿的人類優勢。在複雜模糊的局面中，你的智慧判斷是那個讓人願意信任你、追隨你的關鍵力量。</div>
+      </div>
+
+    </div>
+  </div>
+
+  <p style="text-align:center;font-size:11px;color:var(--ink-light);margin-top:4px">
+    ✦ 5種能量類型組合，每位用戶報告皆不同 ✦
+  </p>
+</div>
+</body>
+</html>
