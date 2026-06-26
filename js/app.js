@@ -321,7 +321,7 @@ function showProfileReveal(bazi, member) {
           <div class="qbar-fill" id="bar${i}" style="width:0%;--bar-color:${q.color}"></div>
         </div>
       </div>
-      <div class="qbar-pct">${pct}%</div>
+      <div class="qbar-pct">${pct >= 50 ? 'MAX' : pct + '%'}</div>
     </div>`;
   }).join('');
 
@@ -329,7 +329,7 @@ function showProfileReveal(bazi, member) {
   setTimeout(() => {
     DATA28.QUADRANTS.forEach((_,i) => {
       const el = $(`#bar${i}`);
-      if (el) el.style.width = profile.percents[i] + '%';
+      if (el) el.style.width = Math.min(profile.percents[i], 50) / 50 * 100 + '%';
     });
   }, 200);
 
@@ -1293,10 +1293,10 @@ function showProfileModal() {
       <div class="qbar-info">
         <div class="qbar-name">${q.name} <span class="qbar-tag ${lbl.cls}">${lbl.text}</span></div>
         <div class="qbar-track">
-          <div class="qbar-fill" style="width:${pct}%;--bar-color:${q.color}"></div>
+          <div class="qbar-fill" style="width:${Math.min(pct,50)/50*100}%;--bar-color:${q.color}"></div>
         </div>
       </div>
-      <div class="qbar-pct">${pct}%</div>
+      <div class="qbar-pct">${pct >= 50 ? 'MAX' : pct + '%'}</div>
     </div>`;
   }).join('');
 
