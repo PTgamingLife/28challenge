@@ -773,13 +773,13 @@ function _renderRecordView(day, done, task, det, doneMap, pg) {
     <div class="record-detail-card" style="border-color:${ac};box-shadow:3px 3px 0 ${ac}">
       <div class="record-detail-header">
         <div class="record-detail-icon">${task.icon}</div>
-        <div style="flex:1">
+        <div>
           <div class="record-detail-title">Day ${day} · ${App.esc(task.title)}</div>
           <div class="record-detail-day">完成於 ${date} ${q?`· ${q.name}`:''}</div>
         </div>
-        <button class="btn btn-outline btn-sm" id="editRecordBtn" style="flex-shrink:0;font-size:12px;padding:4px 12px">✏️ 修改</button>
       </div>
       <div class="record-detail-text">${App.esc(done.response)}</div>
+      <button class="btn btn-outline btn-block btn-sm" id="editRecordBtn" style="margin-top:12px">✏️ 修改這天的故事</button>
     </div>
   `;
   $('#editRecordBtn', det).onclick = () => _renderRecordEdit(day, task, done.response, det, doneMap, pg);
