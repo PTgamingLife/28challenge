@@ -272,6 +272,7 @@ function restoreBazi() {
 }
 
 function logout() {
+  if (App._praiseChannel) { App.sb.removeChannel(App._praiseChannel); App._praiseChannel = null; }
   localStorage.removeItem('bazi28_me');
   App.me = null; App.bazi = null; App.galaxyUserId = null;
   $('#app').classList.add('hidden');
@@ -353,6 +354,31 @@ function enterApp() {
   $('#dayBadge').textContent = `Day ${App.todayDay}`;
   $('#app').classList.remove('hidden');
   showPage('task');
+  subscribePraises();
+}
+
+function subscribePraises() {
+  if (App._praiseChannel) App.sb.removeChannel(App._praiseChannel);
+  App._praiseChannel = App.sb
+    .channel('praise-inbox-' + App.me.id)
+    .on('postgres_changes', {
+      event: 'INSERT', schema: 'public', table: 'bazi28_praises',
+      filter: `to_id=eq.${App.me.id}`,
+    }, (payload) => {
+      const { from_name, emoji } = payload.new;
+      showPraiseNotif(from_name, emoji);
+    })
+    .subscribe();
+}
+
+function showPraiseNotif(fromName, emoji) {
+  const el = $('#praiseNotif');
+  if (!el) return;
+  $('#praiseNotifEmoji').textContent = emoji;
+  $('#praiseNotifText').textContent  = `${fromName} 給你送來鼓勵！`;
+  el.classList.add('show');
+  clearTimeout(App._praiseNotifTimer);
+  App._praiseNotifTimer = setTimeout(() => el.classList.remove('show'), 4500);
 }
 
 /* ════════════════════════════════════════
