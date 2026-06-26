@@ -135,14 +135,17 @@ window.BAZI = (function () {
   // Build SVG pentagon radar chart
   function buildRadarSVG(percents, colors) {
     const cx = 100, cy = 105, r = 72;
+    // Normalize so the highest value reaches 95% of the outer ring
+    const maxPct = Math.max(...percents, 1);
+    const normalized = percents.map(p => p / maxPct * 95);
     const pts = (scale) => [0,1,2,3,4].map(i => {
       const a = -Math.PI/2 + i * 2 * Math.PI / 5;
       const s = scale[i] / 100;
       return [cx + r * s * Math.cos(a), cy + r * s * Math.sin(a)];
     });
     const bg  = pts([100,100,100,100,100]);
-    const bg2 = pts([60,60,60,60,60]);
-    const fill = pts(percents);
+    const bg2 = pts([50,50,50,50,50]);
+    const fill = pts(normalized);
     const labs = [0,1,2,3,4].map(i => {
       const a = -Math.PI/2 + i * 2 * Math.PI / 5;
       return [cx + (r + 22) * Math.cos(a), cy + (r + 22) * Math.sin(a)];
