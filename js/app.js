@@ -753,31 +753,108 @@ function showRecordDetail(day, doneMap, pg) {
   const det  = $('#recordDetail', pg);
   if (!det) return;
 
-  if (!done) {
-    const isToday = day === App.todayDay;
-    det.innerHTML = `<div class="card"><div class="card-title">Day ${day} · ${task.title}</div>
-      ${isToday ? '<p class="text-muted" style="font-size:14px">今天的任務還未完成，去任務頁寫下你的故事吧！</p>' : '<p class="text-muted" style="font-size:14px">這一天還沒有記錄。</p>'}
-    </div>`;
-    return;
+  if (done) {
+    _renderRecordView(day, done, task, det, doneMap, pg);
+  } else {
+    _renderRecordEdit(day, task, '', det, doneMap, pg);
   }
+}
 
+function _accentFor(task) {
+  return task.quadrantId != null ? DATA28.QUADRANTS[task.quadrantId].color : '#C9A84C';
+}
+
+function _renderRecordView(day, done, task, det, doneMap, pg) {
   const q = task.quadrantId != null ? DATA28.QUADRANTS[task.quadrantId] : null;
-  const accentColor = q ? q.color : '#C9A84C';
+  const ac = _accentFor(task);
   const date = new Date(done.completed_at).toLocaleDateString('zh-TW');
 
   det.innerHTML = `
-    <div class="record-detail-card" style="border-color:${accentColor};box-shadow:3px 3px 0 ${accentColor}">
+    <div class="record-detail-card" style="border-color:${ac};box-shadow:3px 3px 0 ${ac}">
       <div class="record-detail-header">
         <div class="record-detail-icon">${task.icon}</div>
-        <div>
+        <div style="flex:1">
           <div class="record-detail-title">Day ${day} · ${App.esc(task.title)}</div>
           <div class="record-detail-day">完成於 ${date} ${q?`· ${q.name}`:''}</div>
         </div>
+        <button class="btn btn-outline btn-sm" id="editRecordBtn" style="flex-shrink:0;font-size:12px;padding:4px 12px">✏️ 修改</button>
       </div>
       <div class="record-detail-text">${App.esc(done.response)}</div>
     </div>
   `;
+  $('#editRecordBtn', det).onclick = () => _renderRecordEdit(day, task, done.response, det, doneMap, pg);
   det.scrollIntoView({ behavior:'smooth' });
+}
+
+function _renderRecordEdit(day, task, existing, det, doneMap, pg) {
+  const ac    = _accentFor(task);
+  const isNew = !existing;
+
+  det.innerHTML = `
+    <div class="record-detail-card" style="border-color:${ac};box-shadow:3px 3px 0 ${ac}">
+      <div class="record-detail-header">
+        <div class="record-detail-icon">${task.icon}</div>
+        <div>
+          <div class="record-detail-title">Day ${day} · ${App.esc(task.title)}</div>
+          <div class="record-detail-day" style="color:${ac}">${isNew ? '補填記錄' : '修改記錄'}</div>
+        </div>
+      </div>
+      <div class="record-edit-prompt">${App.renderPrompt(task.prompt)}</div>
+      <div class="task-textarea-wrap" style="margin-top:10px">
+        <textarea class="task-textarea" id="recEditTA" placeholder="在這裡寫下你的故事……">${App.esc(existing)}</textarea>
+        <span class="word-count" id="recEditWC">0 字</span>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        ${!isNew ? `<button class="btn btn-outline btn-block" id="recCancelBtn" style="flex:0 0 80px">取消</button>` : ''}
+        <button class="btn btn-gold btn-block" id="recSaveBtn"><span>${isNew ? '儲存記錄 ✨' : '更新故事 ✨'}</span></button>
+      </div>
+    </div>
+  `;
+
+  const ta = $('#recEditTA', det);
+  const wc = $('#recEditWC', det);
+  const updateWC = () => { wc.textContent = ta.value.replace(/\s/g,'').length + ' 字'; };
+  ta.addEventListener('input', updateWC);
+  updateWC();
+
+  if (!isNew) {
+    $('#recCancelBtn', det).onclick = () => _renderRecordView(day, doneMap[day], task, det, doneMap, pg);
+  }
+
+  $('#recSaveBtn', det).onclick = async () => {
+    const text = ta.value.trim();
+    if (text.length < 20) return App.toast('請寫多一點（至少20字）😊');
+    const btn = $('#recSaveBtn', det); btn.disabled = true;
+    $('span', btn).textContent = '儲存中…';
+    try {
+      await App.db.saveTask(day, text);
+      App.toast(isNew ? `Day ${day} 記錄已補填！🌟` : '故事已更新！🌟');
+      const updated = await App.db.getMyTask(day);
+      if (updated) doneMap[day] = updated;
+      // Refresh grid cell
+      const cell = $(`.record-cell[data-day="${day}"]`, pg);
+      if (cell) {
+        cell.classList.add('done');
+        cell.classList.remove('today');
+        if (task.quadrantId != null) {
+          const c = App.qColor(task.quadrantId);
+          cell.style.background = c; cell.style.borderColor = c;
+        }
+        const excerpEl = cell.querySelector('.record-cell-excerpt');
+        const excerpt = text.slice(0,40) + '…';
+        if (excerpEl) excerpEl.textContent = excerpt;
+        else cell.insertAdjacentHTML('beforeend', `<div class="record-cell-excerpt">${App.esc(excerpt)}</div>`);
+      }
+      _renderRecordView(day, updated, task, det, doneMap, pg);
+    } catch(_) {
+      App.toast('儲存失敗，請重試');
+      btn.disabled = false;
+      $('span', btn).textContent = isNew ? '儲存記錄 ✨' : '更新故事 ✨';
+    }
+  };
+
+  det.scrollIntoView({ behavior:'smooth' });
+  setTimeout(() => ta.focus(), 300);
 }
 
 /* ════════════════════════════════════════

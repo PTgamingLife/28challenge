@@ -520,6 +520,12 @@ body {
   border-radius: var(--radius-sm); padding: 14px;
   border-left: 4px solid var(--gold);
 }
+.record-edit-prompt {
+  background: var(--cream); border-radius: var(--radius-sm);
+  padding: 10px 12px; font-size: 13px; line-height: 1.7;
+  border-left: 4px solid var(--gold); margin-bottom: 4px;
+  color: var(--ink-mid);
+}
 
 /* ══════════════════════════════════════
    社交頁 — 書架 (Social Page)
