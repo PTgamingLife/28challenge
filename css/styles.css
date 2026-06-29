@@ -528,6 +528,46 @@ body {
 }
 
 /* ══════════════════════════════════════
+   Day 5 Milestone Card (Record Page)
+══════════════════════════════════════ */
+.milestone-record-card {
+  background: var(--ink);
+  border: 2.5px solid var(--gold);
+  border-radius: var(--radius);
+  padding: 18px 18px 20px;
+  margin: 0 0 14px;
+  box-shadow: 4px 4px 0 var(--gold-deep), 0 8px 32px rgba(0,0,0,.35);
+  position: relative;
+  overflow: hidden;
+}
+.milestone-record-card::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 50% 0%, rgba(201,168,76,.12) 0%, transparent 70%);
+  pointer-events: none;
+}
+.milestone-record-badge {
+  font-size: 11px; font-weight: 800; letter-spacing: 1.5px;
+  color: var(--gold); text-align: center; margin-bottom: 12px;
+}
+.milestone-record-character {
+  font-size: 22px; font-weight: 900; font-style: italic;
+  color: var(--cream); text-align: center; margin-bottom: 8px; line-height: 1.3;
+}
+.milestone-record-advantage {
+  font-size: 14px; color: rgba(255,248,238,.75);
+  text-align: center; margin-bottom: 12px; line-height: 1.6;
+}
+.milestone-record-tags {
+  display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
+}
+.milestone-record-tag {
+  font-size: 12px; font-weight: 700; padding: 4px 12px;
+  border: 1.5px solid rgba(201,168,76,.5); border-radius: 999px;
+  color: var(--gold); background: rgba(201,168,76,.08);
+}
+
+/* ══════════════════════════════════════
    社交頁 — 書架 (Social Page)
 ══════════════════════════════════════ */
 .social-day-header {

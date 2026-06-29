@@ -168,6 +168,17 @@ App.db = {
     const { data } = await App.sb.from('bazi28_praises').select('*').eq('to_id',toId).eq('day_index',dayIndex);
     return data || [];
   },
+  async getMilestone(type) {
+    const { data } = await App.sb.from('bazi28_milestones')
+      .select('*').eq('member_id', App.me.id).eq('type', type).maybeSingle();
+    return data;
+  },
+  async saveMilestone(type, content) {
+    const { error } = await App.sb.from('bazi28_milestones').upsert({
+      member_id: App.me.id, type, content,
+    }, { onConflict: 'member_id,type' });
+    if (error) throw error;
+  },
 };
 
 /* ════════════════════════════════════════
@@ -355,6 +366,7 @@ function enterApp() {
   $('#app').classList.remove('hidden');
   showPage('task');
   subscribePraises();
+  setTimeout(() => checkDay5Milestone(), 900);
 }
 
 function subscribePraises() {
@@ -379,6 +391,212 @@ function showPraiseNotif(fromName, emoji) {
   el.classList.add('show');
   clearTimeout(App._praiseNotifTimer);
   App._praiseNotifTimer = setTimeout(() => el.classList.remove('show'), 4500);
+}
+
+/* ════════════════════════════════════════
+   Day 5 品牌人設卡
+════════════════════════════════════════ */
+async function checkDay5Milestone() {
+  if (App.todayDay < 5) return;
+  const existing = await App.db.getMilestone('day5_card');
+  if (existing) return;
+
+  const allTasks = await App.db.myTasks();
+  const stories  = allTasks.filter(t => t.day_index <= 4 && t.response);
+
+  if (stories.length === 0) {
+    if (App._day5Prompted) return;
+    App._day5Prompted = true;
+    App.openModal(`
+      <div style="text-align:center;padding:32px 20px">
+        <div style="font-size:52px;margin-bottom:12px">🌟</div>
+        <div style="font-size:19px;font-weight:900;font-style:italic;color:var(--ink);margin-bottom:10px">你的品牌人設卡正在等你</div>
+        <p style="font-size:14px;color:var(--ink-mid);line-height:1.7;margin-bottom:0">完成任意一天的故事，AI 就能為你生成<br><strong>專屬品牌人設卡</strong>，幫你找到自己最獨特的優勢！</p>
+        <button class="btn btn-gold btn-block" onclick="App.closeModal();showPage('task')" style="margin-top:20px"><span>去完成今日任務 ✨</span></button>
+        <button class="link-btn" onclick="App.closeModal()" style="margin-top:10px;display:block;text-align:center">稍後再說</button>
+      </div>
+    `);
+    return;
+  }
+
+  App.openModal(`
+    <div style="text-align:center;padding:40px 24px">
+      <div style="font-size:48px;margin-bottom:14px">✨</div>
+      <div style="font-size:18px;font-weight:900;font-style:italic;color:var(--ink)">正在生成你的品牌人設卡…</div>
+      <div style="font-size:13px;color:var(--ink-light);margin-top:8px">AI 正在分析你的故事，請稍候</div>
+      <div style="font-size:32px;margin-top:20px" class="spinning">⏳</div>
+    </div>
+  `);
+
+  try {
+    const masterTypeName = App.bazi?.masterType?.name || '';
+    const res = await fetch(`${CONFIG.SUPABASE_URL}/functions/v1/day5-milestone`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${CONFIG.SUPABASE_ANON_KEY}` },
+      body: JSON.stringify({
+        memberName: App.me.name,
+        masterTypeName,
+        stories: stories.map(s => ({
+          day_index: s.day_index,
+          title: DATA28.getTask(s.day_index).title,
+          response: s.response,
+        })),
+      }),
+    });
+    const cardData = await res.json();
+    if (cardData.error) throw new Error(cardData.error);
+    const full = { ...cardData, masterTypeName, memberName: App.me.name };
+    await App.db.saveMilestone('day5_card', full);
+    showMilestonePopup(full);
+  } catch(err) {
+    App.closeModal();
+    console.error('day5 milestone:', err);
+    App.toast('人設卡生成失敗，請稍後重試');
+  }
+}
+
+function showMilestonePopup(cardData) {
+  App.closeModal();
+  const canvas  = generateMilestoneCanvas(cardData);
+  const dataUrl = canvas.toDataURL('image/png');
+  App.openModal(`
+    <div style="text-align:center;padding:16px">
+      <div style="font-size:13px;font-weight:700;color:var(--gold);letter-spacing:1px;margin-bottom:10px">✦ 你的品牌人設卡已生成 ✦</div>
+      <img src="${dataUrl}" style="width:100%;max-width:380px;border-radius:12px;display:block;margin:0 auto 14px;box-shadow:0 4px 24px rgba(0,0,0,.4)" alt="品牌人設卡"/>
+      <a href="${dataUrl}" download="${App.esc(App.me.name || '我')}_品牌人設卡.png"
+         class="btn btn-gold btn-block" style="display:flex;align-items:center;justify-content:center;gap:6px;text-decoration:none;margin-bottom:8px">
+        <span>⬇️ 下載圖片</span>
+      </a>
+      <button class="btn btn-outline btn-block" onclick="App.closeModal()" style="border-color:var(--cream-dark);color:var(--ink-mid)">關閉</button>
+      <div style="font-size:11px;color:var(--ink-light);margin-top:10px">在「📜 記錄」頁可隨時重新查看</div>
+    </div>
+  `);
+}
+
+function generateMilestoneCanvas(cardData) {
+  const W = 1080, H = 1080;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  const gold = '#C9A84C', cream = '#FFF8EE';
+  const F = (w, s) => `${w} ${s}px 'PingFang TC','Noto Sans TC','Microsoft YaHei',sans-serif`;
+
+  // Background
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#120A00'); bg.addColorStop(1, '#1E1100');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+  // Top gold gradient overlay
+  const hg = ctx.createLinearGradient(0, 50, 0, 220);
+  hg.addColorStop(0, 'rgba(201,168,76,0.16)'); hg.addColorStop(1, 'rgba(201,168,76,0)');
+  ctx.fillStyle = hg; _milestoneRR(ctx, 29, 29, W-58, 190, 16); ctx.fill();
+
+  // Outer border
+  ctx.strokeStyle = gold; ctx.lineWidth = 6;
+  _milestoneRR(ctx, 28, 28, W-56, H-56, 18); ctx.stroke();
+  // Inner border
+  ctx.strokeStyle = 'rgba(201,168,76,0.28)'; ctx.lineWidth = 1.5;
+  _milestoneRR(ctx, 46, 46, W-92, H-92, 10); ctx.stroke();
+
+  ctx.textAlign = 'center';
+
+  // App title
+  ctx.fillStyle = 'rgba(201,168,76,0.55)'; ctx.font = F(500, 24);
+  ctx.fillText('28天品牌故事挑戰', W/2, 96);
+
+  // Badge
+  const bW=320, bH=48, bX=W/2-bW/2, bY=114;
+  ctx.fillStyle = 'rgba(201,168,76,0.14)'; _milestoneRR(ctx, bX, bY, bW, bH, 24); ctx.fill();
+  ctx.strokeStyle = 'rgba(201,168,76,0.42)'; ctx.lineWidth = 1; _milestoneRR(ctx, bX, bY, bW, bH, 24); ctx.stroke();
+  ctx.fillStyle = gold; ctx.font = F('bold', 22);
+  ctx.fillText('✦  第5天 · 品牌人設卡  ✦', W/2, bY + 31);
+
+  // Character title
+  let y = 226;
+  ctx.fillStyle = cream; ctx.font = F(900, 52);
+  const charN = _milestoneWrap(ctx, cardData.character || '品牌先鋒', W/2, y, W-160, 64);
+  y += charN * 64 + 28;
+
+  // Divider
+  ctx.strokeStyle = gold; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(100, y); ctx.lineTo(W-100, y); ctx.stroke();
+  [100, W/2, W-100].forEach(x => {
+    ctx.fillStyle = gold; ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI*2); ctx.fill();
+  });
+  y += 48;
+
+  // Core advantage
+  ctx.fillStyle = gold; ctx.font = F(600, 24); ctx.textAlign = 'center';
+  ctx.fillText('⬡  核心優勢  ⬡', W/2, y); y += 52;
+  ctx.fillStyle = cream; ctx.font = F(900, 44);
+  const advN = _milestoneWrap(ctx, cardData.advantage || '', W/2, y, W-160, 56);
+  y += advN * 56 + 38;
+
+  // Tags
+  const tags = (cardData.tags || []).slice(0, 4);
+  const tagColors = ['#C0392B','#8E44AD','#27AE60','#2980B9'];
+  ctx.font = F(600, 22);
+  const tWs = tags.map(t => Math.max(ctx.measureText(t).width + 44, 110));
+  const tGap = 14;
+  const tTotal = tWs.reduce((s,w)=>s+w,0) + tGap*(tags.length-1);
+  let tx = W/2 - tTotal/2;
+  tags.forEach((tag, i) => {
+    const tw = tWs[i], th = 46;
+    ctx.fillStyle = tagColors[i%4] + '40'; _milestoneRR(ctx, tx, y, tw, th, th/2); ctx.fill();
+    ctx.strokeStyle = tagColors[i%4]; ctx.lineWidth = 1.5; _milestoneRR(ctx, tx, y, tw, th, th/2); ctx.stroke();
+    ctx.fillStyle = cream; ctx.font = F(600, 22); ctx.textAlign = 'center';
+    ctx.fillText(tag, tx + tw/2, y + 30); tx += tw + tGap;
+  });
+  y += 60;
+
+  // Story quote
+  ctx.fillStyle = gold; ctx.fillRect(82, y - 8, 4, 104);
+  ctx.fillStyle = 'rgba(201,168,76,0.10)'; _milestoneRR(ctx, 93, y - 14, W-174, 118, 10); ctx.fill();
+  ctx.fillStyle = cream; ctx.font = `italic 28px 'PingFang TC','Noto Sans TC',sans-serif`;
+  ctx.textAlign = 'left';
+  _milestoneWrap(ctx, `「${cardData.story || ''}」`, 112, y + 36, W-230, 40);
+  y += 130;
+
+  // Decorative
+  ['✦','✦','✦'].forEach((s, i) => {
+    ctx.fillStyle = `rgba(201,168,76,${0.18+i*0.09})`; ctx.textAlign='center';
+    ctx.font = `${16+i*5}px sans-serif`;
+    ctx.fillText(s, W/4*(i+1), y + 14);
+  });
+
+  // Bottom
+  const botY = H - 108;
+  ctx.strokeStyle = 'rgba(201,168,76,0.3)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(80, botY); ctx.lineTo(W-80, botY); ctx.stroke();
+  ctx.fillStyle = gold; ctx.font = F('bold', 32); ctx.textAlign = 'center';
+  ctx.fillText(cardData.memberName || App.me.name, W/2, botY + 44);
+  ctx.fillStyle = 'rgba(201,168,76,0.55)'; ctx.font = F(400, 22);
+  ctx.fillText(cardData.masterTypeName || '28天品牌挑戰者', W/2, botY + 74);
+
+  return cv;
+}
+
+function _milestoneWrap(ctx, text, x, y, maxW, lineH) {
+  if (!text) return 0;
+  let line = '', n = 0;
+  for (const ch of [...text]) {
+    const test = line + ch;
+    if (ctx.measureText(test).width > maxW && line) {
+      ctx.fillText(line, x, y + n * lineH); line = ch; n++;
+    } else { line = test; }
+  }
+  if (line) { ctx.fillText(line, x, y + n * lineH); n++; }
+  return n;
+}
+
+function _milestoneRR(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.arcTo(x+w, y, x+w, y+h, r);
+  ctx.arcTo(x+w, y+h, x, y+h, r);
+  ctx.arcTo(x, y+h, x, y, r);
+  ctx.arcTo(x, y, x+w, y, r);
+  ctx.closePath();
 }
 
 /* ════════════════════════════════════════
@@ -713,7 +931,10 @@ async function renderRecordPage() {
   const pg = $('#page-record');
   pg.innerHTML = '<div class="empty-tip"><span class="spinning">⏳</span> 載入記錄中…</div>';
 
-  const tasks = await App.db.myTasks();
+  const [tasks, milestone] = await Promise.all([
+    App.db.myTasks(),
+    App.db.getMilestone('day5_card'),
+  ]);
   const doneMap = {};
   tasks.forEach(t => { if (t.response) doneMap[t.day_index] = t; });
 
@@ -734,13 +955,30 @@ async function renderRecordPage() {
     </div>`;
   }).join('');
 
+  const milestoneHtml = milestone ? `
+    <div class="milestone-record-card">
+      <div class="milestone-record-badge">✨ 第5天・品牌人設卡</div>
+      <div class="milestone-record-character">${App.esc(milestone.content.character || '')}</div>
+      <div class="milestone-record-advantage">${App.esc(milestone.content.advantage || '')}</div>
+      <div class="milestone-record-tags">
+        ${(milestone.content.tags || []).map(t => `<span class="milestone-record-tag">${App.esc(t)}</span>`).join('')}
+      </div>
+      <button class="btn btn-gold btn-block" id="milestoneViewBtn" style="margin-top:14px"><span>🖼️ 查看 & 下載圖片</span></button>
+    </div>
+  ` : '';
+
   pg.innerHTML = `
+    ${milestoneHtml}
     <div class="card">
       <div class="card-title">📜 我的28天記錄</div>
       <div class="record-grid">${cells}</div>
     </div>
     <div id="recordDetail"></div>
   `;
+
+  if (milestone) {
+    $('#milestoneViewBtn', pg).onclick = () => showMilestonePopup(milestone.content);
+  }
 
   $$('.record-cell:not(.future)', pg).forEach(cell => {
     cell.addEventListener('click', () => showRecordDetail(+cell.dataset.day, doneMap, pg));
