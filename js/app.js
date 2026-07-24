@@ -1153,10 +1153,14 @@ async function renderSocialPage() {
         ${DATA28.QUADRANTS.map(q => `<span class="galaxy-legend-item"><span class="galaxy-legend-dot" style="background:${q.color}"></span>${q.name}</span>`).join('')}
       </div>
       <div class="galaxy-svg-wrap" id="galaxySvgWrap"></div>
+      <button class="btn btn-gold btn-block" id="dlBookshelfBtn" style="margin-top:16px"><span>📖 下載星系紀念冊（HTML）</span></button>
     </div>
   `;
 
   buildGalaxy3D(doneMap, viewMem);
+
+  const dlBtn = $('#dlBookshelfBtn');
+  if (dlBtn) dlBtn.onclick = () => downloadBookshelf(viewMem || App.me, doneMap, doneCount);
 
   $('#galaxyMenuBtn').onclick = (e) => {
     e.stopPropagation();
@@ -1177,6 +1181,136 @@ async function renderSocialPage() {
     }
   }
   document.addEventListener('click', onOutside, true);
+}
+
+/* 產生獨立、可下載的星系 SVG 字串（不含事件，圖示與標題已內嵌） */
+function galaxySVGString(doneMap, member) {
+  const W = 380, H = 380, CX = 190, CY = 190;
+  const RINGS = [
+    { r: 46,  qId: -1, color: '#C9A84C', days: [1, 27, 28] },
+    { r: 78,  qId: 0,  color: '#C0392B', days: [2,3,4,5,6] },
+    { r: 106, qId: 1,  color: '#8E44AD', days: [7,8,9,10,11] },
+    { r: 132, qId: 2,  color: '#27AE60', days: [12,13,14,15,16] },
+    { r: 156, qId: 3,  color: '#2980B9', days: [17,18,19,20,21] },
+    { r: 177, qId: 4,  color: '#E67E22', days: [22,23,24,25,26] },
+  ];
+  const uid = Math.floor(Math.random() * 1e9);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;max-width:380px">
+    <defs>
+      <radialGradient id="sbg${uid}" cx="50%" cy="50%" r="55%">
+        <stop offset="0%" stop-color="#1C0D38"/><stop offset="55%" stop-color="#0E0720"/><stop offset="100%" stop-color="#050210"/>
+      </radialGradient>
+      <radialGradient id="sunr${uid}" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="#C9A84C" stop-opacity="0.4"/><stop offset="100%" stop-color="#C9A84C" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+    <rect width="${W}" height="${H}" fill="url(#sbg${uid})" rx="14"/>`;
+  for (let i = 0; i < 88; i++) {
+    const x = (Math.random() * W).toFixed(1), y = (Math.random() * H).toFixed(1);
+    const r = (Math.random() * 1.3 + 0.2).toFixed(1), o = (Math.random() * 0.45 + 0.05).toFixed(2);
+    svg += `<circle cx="${x}" cy="${y}" r="${r}" fill="#fff" opacity="${o}"/>`;
+  }
+  RINGS.forEach(ring => {
+    const d = (ring.r * 0.28).toFixed(1), g = (ring.r * 0.07).toFixed(1);
+    svg += `<circle cx="${CX}" cy="${CY}" r="${ring.r}" fill="none" stroke="${ring.color}" stroke-width="1.5" stroke-opacity="0.28" stroke-dasharray="${d} ${g}"/>`;
+  });
+  svg += `<circle cx="${CX}" cy="${CY}" r="42" fill="url(#sunr${uid})"/>`;
+  svg += `<circle cx="${CX}" cy="${CY}" r="26" fill="#130826" stroke="#C9A84C" stroke-width="2.5"/>`;
+  svg += `<text x="${CX}" y="${CY + 9}" text-anchor="middle" dominant-baseline="middle" font-size="24">${DATA28.AVATARS[member?.avatar_index || 0]}</text>`;
+  RINGS.forEach(ring => {
+    const count = ring.days.length;
+    ring.days.forEach((day, i) => {
+      const angle = -Math.PI / 2 + (i / count) * 2 * Math.PI;
+      const x = (CX + ring.r * Math.cos(angle)).toFixed(1);
+      const y = (CY + ring.r * Math.sin(angle)).toFixed(1);
+      const done = doneMap[day];
+      const task = DATA28.getTask(day);
+      const c = ring.color, big = ring.qId === -1;
+      if (done) {
+        const sr = big ? 15 : 11;
+        svg += `<circle cx="${x}" cy="${y}" r="${sr + 6}" fill="${c}" opacity="0.18"/>`;
+        svg += `<circle cx="${x}" cy="${y}" r="${sr}" fill="${c}" stroke="#fff" stroke-width="1.5" stroke-opacity="0.4" opacity="0.92"/>`;
+        svg += `<text x="${x}" y="${(+y + 5).toFixed(1)}" text-anchor="middle" font-size="${big ? 13 : 9}">${task.icon}</text>`;
+      } else {
+        svg += `<circle cx="${x}" cy="${y}" r="3.5" fill="${c}" opacity="0.18"/>`;
+      }
+    });
+  });
+  svg += `</svg>`;
+  return svg;
+}
+
+/* 把星系 + 個人 28 天累計記錄打包成一份可下載的獨立 HTML 檔 */
+function downloadBookshelf(member, doneMap, doneCount) {
+  const name = member?.name || '我';
+  const avatar = DATA28.AVATARS[member?.avatar_index || 0];
+  const svg = galaxySVGString(doneMap, member);
+
+  let recs = '';
+  for (let d = 1; d <= 28; d++) {
+    const row = doneMap[d];
+    if (!row || !row.response) continue;
+    const t = DATA28.getTask(d);
+    const q = (t.quadrantId != null) ? DATA28.QUADRANTS[t.quadrantId] : null;
+    const color = q ? q.color : '#C9A84C';
+    recs += `<div class="rec" style="border-left-color:${color}">
+      <div class="rec-h"><span class="rec-day">Day ${d}</span><span class="rec-title">${t.icon} ${App.esc(t.title)}</span></div>
+      <p class="rec-body">${App.esc(row.response)}</p>
+    </div>`;
+  }
+  if (!recs) recs = '<p style="text-align:center;opacity:.7">還沒有完成任何一天的故事，先去點亮你的第一顆星吧！</p>';
+
+  const today = new Date().toLocaleDateString('zh-TW');
+  const title = `${name} 的 28 天星系紀念冊`;
+  const html = `<!DOCTYPE html>
+<html lang="zh-Hant"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>${App.esc(title)}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#060312;color:#EDE7FF;font-family:"PingFang TC","Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif;line-height:1.8;padding:24px 16px 60px}
+  .wrap{max-width:640px;margin:0 auto}
+  header{text-align:center;margin-bottom:24px}
+  .ava{font-size:52px}
+  h1{font-size:22px;margin:6px 0;color:#fff;font-weight:900;letter-spacing:1px}
+  .sub{color:#C9A84C;font-size:14px;font-weight:700}
+  .stat{margin-top:10px;font-size:13px;opacity:.85}
+  .galaxy{display:flex;justify-content:center;margin:20px 0 30px}
+  .sec-title{font-size:15px;font-weight:900;color:#C9A84C;letter-spacing:2px;text-align:center;margin:28px 0 16px;position:relative}
+  .sec-title:before,.sec-title:after{content:"✦";margin:0 10px;opacity:.6}
+  .rec{background:rgba(255,255,255,.04);border-left:4px solid #C9A84C;border-radius:10px;padding:14px 16px;margin-bottom:14px}
+  .rec-h{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .rec-day{font-size:12px;font-weight:800;color:#0E0720;background:#C9A84C;border-radius:999px;padding:2px 10px}
+  .rec-title{font-size:15px;font-weight:800;color:#fff}
+  .rec-body{font-size:14px;color:#D8CFF0;white-space:pre-wrap;word-break:break-word}
+  footer{text-align:center;margin-top:36px;font-size:12px;opacity:.55}
+</style></head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="ava">${avatar}</div>
+      <h1>${App.esc(name)} 的星系紀念冊</h1>
+      <div class="sub">28 天品牌故事挑戰</div>
+      <div class="stat">✨ 點亮了 ${doneCount} / 28 顆星</div>
+    </header>
+    <div class="galaxy">${svg}</div>
+    <div class="sec-title">我的 28 天故事</div>
+    ${recs}
+    <footer>於 ${today} 生成 · 願你的品牌之光持續閃耀 🌟</footer>
+  </div>
+</body></html>`;
+
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${name}_28天星系紀念冊.html`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  if (App.toast) App.toast('星系紀念冊已下載 📖✨');
 }
 
 function buildGalaxySVG(doneMap, member) {
