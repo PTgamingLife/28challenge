@@ -1240,12 +1240,141 @@ function galaxySVGString(doneMap, member) {
   return svg;
 }
 
-/* 把星系 + 個人 28 天累計記錄打包成一份可下載的獨立 HTML 檔 */
+/* 獨立 3D 星系（下載檔專用）— 不依賴 App/DATA28，只靠 CDN 的 THREE + OrbitControls。
+   注意：內部不可使用樣板字串（會與外層樣板字串衝突）。 */
+function keepsakeGalaxy(mountId, DONE, AVATAR) {
+  var THREE = window.THREE;
+  var mount = document.getElementById(mountId);
+  if (!mount || !THREE || !THREE.OrbitControls) return false;
+  mount.innerHTML = '';
+  var W = mount.clientWidth || 360;
+  var H = Math.round(Math.min(W, 460));
+  var canvas = document.createElement('canvas');
+  canvas.style.borderRadius = '14px';
+  canvas.style.touchAction = 'none';
+  mount.appendChild(canvas);
+
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+  renderer.setSize(W, H);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setClearColor(0x050210, 1);
+
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(55, W / H, 0.1, 100);
+  camera.position.set(0, 3.5, 7.5);
+
+  var controls = new THREE.OrbitControls(camera, canvas);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.minDistance = 2.5;
+  controls.maxDistance = 16;
+  controls.enablePan = false;
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 0.5;
+  controls.addEventListener('start', function () { controls.autoRotate = false; });
+
+  var pos = [];
+  for (var i = 0; i < 600; i++) {
+    var rr = 14 + Math.random() * 8, th = Math.random() * Math.PI * 2, ph = Math.acos(2 * Math.random() - 1);
+    pos.push(rr * Math.sin(ph) * Math.cos(th), rr * Math.cos(ph), rr * Math.sin(ph) * Math.sin(th));
+  }
+  var bg = new THREE.BufferGeometry();
+  bg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  scene.add(new THREE.Points(bg, new THREE.PointsMaterial({ color: 0xffffff, size: 0.09 })));
+
+  var RINGS = [
+    { r: 1.25, hex: 0xC9A84C, speed: 0.012, core: true, days: [1, 27, 28] },
+    { r: 2.05, hex: 0xC0392B, speed: 0.009, days: [2, 3, 4, 5, 6] },
+    { r: 2.78, hex: 0x8E44AD, speed: 0.007, days: [7, 8, 9, 10, 11] },
+    { r: 3.48, hex: 0x27AE60, speed: 0.0055, days: [12, 13, 14, 15, 16] },
+    { r: 4.10, hex: 0x2980B9, speed: 0.0042, days: [17, 18, 19, 20, 21] },
+    { r: 4.65, hex: 0xE67E22, speed: 0.0032, days: [22, 23, 24, 25, 26] }
+  ];
+  RINGS.forEach(function (ring) {
+    var pts = [];
+    for (var j = 0; j <= 128; j++) { var a = (j / 128) * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a) * ring.r, 0, Math.sin(a) * ring.r)); }
+    scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: ring.hex, transparent: true, opacity: 0.32 })));
+  });
+
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(0.75, 24, 24), new THREE.MeshBasicMaterial({ color: 0xC9A84C, transparent: true, opacity: 0.12, depthWrite: false })));
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(0.40, 32, 32), new THREE.MeshBasicMaterial({ color: 0x1C0A40 })));
+  scene.add(new THREE.Mesh(new THREE.TorusGeometry(0.50, 0.028, 8, 48), new THREE.MeshBasicMaterial({ color: 0xC9A84C })));
+
+  function sprite(text, sizePx) {
+    var c = document.createElement('canvas'); c.width = sizePx; c.height = sizePx;
+    var ctx = c.getContext('2d');
+    ctx.font = Math.round(sizePx * 0.65) + 'px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, sizePx / 2, sizePx * 0.57);
+    var tex = new THREE.CanvasTexture(c);
+    return new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+  }
+
+  var av = sprite(AVATAR, 128); av.scale.set(0.82, 0.82, 0.82); scene.add(av);
+
+  var orbit = [], clickable = [], ray = new THREE.Raycaster();
+  RINGS.forEach(function (ring) {
+    var g = new THREE.Group(); scene.add(g); orbit.push({ group: g, speed: ring.speed });
+    var count = ring.days.length;
+    ring.days.forEach(function (day, i) {
+      var angle = -Math.PI / 2 + (i / count) * Math.PI * 2;
+      var x = Math.cos(angle) * ring.r, z = Math.sin(angle) * ring.r;
+      var d = DONE[day];
+      if (d) {
+        var sr = ring.core ? 0.23 : 0.17;
+        var glow = new THREE.Mesh(new THREE.SphereGeometry(sr + 0.15, 12, 12), new THREE.MeshBasicMaterial({ color: ring.hex, transparent: true, opacity: 0.22, depthWrite: false }));
+        glow.position.set(x, 0, z); g.add(glow);
+        var star = new THREE.Mesh(new THREE.SphereGeometry(sr, 16, 16), new THREE.MeshBasicMaterial({ color: ring.hex }));
+        star.position.set(x, 0, z); star.userData = { day: day }; g.add(star); clickable.push(star);
+        var ic = sprite(d.icon, 64); ic.scale.set(sr * 2.5, sr * 2.5, sr * 2.5); ic.position.set(x, 0, z); g.add(ic);
+      } else {
+        var dot = new THREE.Mesh(new THREE.SphereGeometry(0.065, 8, 8), new THREE.MeshBasicMaterial({ color: ring.hex, transparent: true, opacity: 0.22 }));
+        dot.position.set(x, 0, z); g.add(dot);
+      }
+    });
+  });
+
+  var downXY = null;
+  canvas.addEventListener('pointerdown', function (e) { downXY = { x: e.clientX, y: e.clientY }; });
+  canvas.addEventListener('pointerup', function (e) {
+    if (!downXY) return;
+    var dx = e.clientX - downXY.x, dy = e.clientY - downXY.y; downXY = null;
+    if (dx * dx + dy * dy > 64) return;
+    var rect = canvas.getBoundingClientRect();
+    ray.setFromCamera(new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1), camera);
+    var hits = ray.intersectObjects(clickable);
+    if (hits.length) {
+      var day = hits[0].object.userData.day, s = DONE[day];
+      if (s) {
+        var m = document.getElementById('storyModal');
+        m.querySelector('.sm-title').textContent = 'Day ' + day + ' · ' + s.icon + ' ' + s.title;
+        m.querySelector('.sm-body').textContent = s.response;
+        m.style.display = 'flex';
+      }
+    }
+  });
+
+  var tick = 0;
+  function animate() {
+    requestAnimationFrame(animate);
+    tick += 0.022;
+    orbit.forEach(function (o) { o.group.rotation.y += o.speed; });
+    clickable.forEach(function (s, idx) { s.scale.setScalar(1 + 0.08 * Math.sin(tick + idx * 0.9)); });
+    controls.update();
+    renderer.render(scene, camera);
+  }
+  animate();
+  window.addEventListener('resize', function () { var nW = mount.clientWidth || 360; renderer.setSize(nW, H); camera.aspect = nW / H; camera.updateProjectionMatrix(); });
+  return true;
+}
+
+/* 把星系 + 個人 28 天累計記錄打包成一份可下載的獨立 HTML 檔（3D 可旋轉縮放，離線退回 SVG） */
 function downloadBookshelf(member, doneMap, doneCount) {
   const name = member?.name || '我';
   const avatar = DATA28.AVATARS[member?.avatar_index || 0];
   const svg = galaxySVGString(doneMap, member);
 
+  const starData = {};
   let recs = '';
   for (let d = 1; d <= 28; d++) {
     const row = doneMap[d];
@@ -1253,12 +1382,17 @@ function downloadBookshelf(member, doneMap, doneCount) {
     const t = DATA28.getTask(d);
     const q = (t.quadrantId != null) ? DATA28.QUADRANTS[t.quadrantId] : null;
     const color = q ? q.color : '#C9A84C';
+    starData[d] = { icon: t.icon, title: t.title, response: row.response };
     recs += `<div class="rec" style="border-left-color:${color}">
       <div class="rec-h"><span class="rec-day">Day ${d}</span><span class="rec-title">${t.icon} ${App.esc(t.title)}</span></div>
       <p class="rec-body">${App.esc(row.response)}</p>
     </div>`;
   }
   if (!recs) recs = '<p style="text-align:center;opacity:.7">還沒有完成任何一天的故事，先去點亮你的第一顆星吧！</p>';
+
+  // 把 < 轉成 <，避免使用者故事內容含 </script> 破壞內嵌腳本
+  const doneJSON = JSON.stringify(starData).replace(/</g, '\\u003c');
+  const avatarJSON = JSON.stringify(avatar).replace(/</g, '\\u003c');
 
   const today = new Date().toLocaleDateString('zh-TW');
   const title = `${name} 的 28 天星系紀念冊`;
@@ -1276,7 +1410,11 @@ function downloadBookshelf(member, doneMap, doneCount) {
   h1{font-size:22px;margin:6px 0;color:#fff;font-weight:900;letter-spacing:1px}
   .sub{color:#C9A84C;font-size:14px;font-weight:700}
   .stat{margin-top:10px;font-size:13px;opacity:.85}
-  .galaxy{display:flex;justify-content:center;margin:20px 0 30px}
+  .galaxy{display:flex;justify-content:center;margin:20px 0 6px}
+  .galaxy-mount{width:100%;max-width:420px;margin:0 auto;min-height:300px;display:flex;justify-content:center;align-items:center}
+  .galaxy-mount canvas{width:100%;height:auto}
+  .galaxy-mount svg{width:100%;height:auto;max-width:380px}
+  .galaxy-hint{text-align:center;font-size:12px;color:#9b8fc0;margin:6px 0 24px}
   .sec-title{font-size:15px;font-weight:900;color:#C9A84C;letter-spacing:2px;text-align:center;margin:28px 0 16px;position:relative}
   .sec-title:before,.sec-title:after{content:"✦";margin:0 10px;opacity:.6}
   .rec{background:rgba(255,255,255,.04);border-left:4px solid #C9A84C;border-radius:10px;padding:14px 16px;margin-bottom:14px}
@@ -1285,6 +1423,11 @@ function downloadBookshelf(member, doneMap, doneCount) {
   .rec-title{font-size:15px;font-weight:800;color:#fff}
   .rec-body{font-size:14px;color:#D8CFF0;white-space:pre-wrap;word-break:break-word}
   footer{text-align:center;margin-top:36px;font-size:12px;opacity:.55}
+  .sm{display:none;position:fixed;inset:0;background:rgba(4,2,16,.72);align-items:center;justify-content:center;padding:20px;z-index:50}
+  .sm-card{background:#140a2e;border:1px solid rgba(201,168,76,.4);border-radius:16px;max-width:460px;width:100%;max-height:80vh;overflow:auto;padding:22px;position:relative}
+  .sm-close{position:absolute;top:10px;right:14px;background:none;border:0;color:#EDE7FF;font-size:20px;cursor:pointer;opacity:.7}
+  .sm-title{font-size:16px;font-weight:900;color:#C9A84C;margin-bottom:12px;padding-right:20px}
+  .sm-body{font-size:14px;color:#D8CFF0;white-space:pre-wrap;word-break:break-word}
 </style></head>
 <body>
   <div class="wrap">
@@ -1294,11 +1437,29 @@ function downloadBookshelf(member, doneMap, doneCount) {
       <div class="sub">28 天品牌故事挑戰</div>
       <div class="stat">✨ 點亮了 ${doneCount} / 28 顆星</div>
     </header>
-    <div class="galaxy">${svg}</div>
+    <div class="galaxy"><div style="width:100%"><div id="galaxyMount" class="galaxy-mount">${svg}</div></div></div>
+    <div id="galaxyHint" class="galaxy-hint">✋ 拖曳旋轉 · 滾輪／雙指縮放 · 點星星看故事</div>
     <div class="sec-title">我的 28 天故事</div>
     ${recs}
     <footer>於 ${today} 生成 · 願你的品牌之光持續閃耀 🌟</footer>
   </div>
+  <div id="storyModal" class="sm"><div class="sm-card"><button class="sm-close">✕</button><div class="sm-title"></div><div class="sm-body"></div></div></div>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></scr`+`ipt>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></scr`+`ipt>
+  <script>
+    var DONE = ${doneJSON};
+    var AVATAR = ${avatarJSON};
+    ${keepsakeGalaxy.toString()}
+    var ok = false;
+    try { ok = keepsakeGalaxy('galaxyMount', DONE, AVATAR); } catch (e) { ok = false; }
+    if (!ok) { var h = document.getElementById('galaxyHint'); if (h) h.textContent = '（離線檢視：靜態星系。連上網開啟可 3D 旋轉）'; }
+    (function () {
+      var m = document.getElementById('storyModal');
+      m.addEventListener('click', function (e) {
+        if (e.target === m || (e.target.className && e.target.className.indexOf('sm-close') > -1)) m.style.display = 'none';
+      });
+    })();
+  </scr`+`ipt>
 </body></html>`;
 
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
