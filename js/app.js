@@ -105,6 +105,13 @@ App.dayFromDate = () => {
   return Math.max(1, Math.min(DATA28.TOTAL_DAYS, diff));
 };
 
+/* 每位夥伴各自的進度：目前這天 = 自己第一個「還沒完成」的日子（全部完成則停在最後一天） */
+App.computeMyDay = (tasks) => {
+  const done = new Set((tasks || []).filter(t => t.response).map(t => t.day_index));
+  for (let d = 1; d <= DATA28.TOTAL_DAYS; d++) if (!done.has(d)) return d;
+  return DATA28.TOTAL_DAYS;
+};
+
 /* ── SHA-256 (for PIN hashing — optional, kept simple) ── */
 App.sha256 = async (txt) => {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt));
@@ -407,8 +414,8 @@ function showProfileReveal(bazi, member) {
 /* ════════════════════════════════════════
    Enter Main App
 ════════════════════════════════════════ */
-function enterApp() {
-  App.todayDay = App.dayFromDate();
+async function enterApp() {
+  App.todayDay = App.computeMyDay(await App.db.myTasks());
   $('#loginOverlay').classList.add('hidden');
   $('#profileRevealOverlay').classList.add('hidden');
   const topAvatar = $('#topAvatar');
@@ -937,6 +944,8 @@ async function renderTaskPage() {
       await App.db.saveTask(day, App.answersToResponse(day, ans), ans);
       App.toast('今日挑戰完成！🌟');
       launchConfetti();
+      App.todayDay = App.computeMyDay(await App.db.myTasks());
+      $('#dayBadge').textContent = `Day ${App.todayDay}`;
       await renderTaskPage();
     } catch (e) {
       App.toast('儲存失敗，請重試'); btn.disabled = false; $('span', btn).textContent = '提交今日答案 ✨';

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>28天品牌故事 — 後臺管理</title>
+  <title>7天品牌故事 — 後臺管理</title>
   <style>
     :root {
       --ink:#1A0F00; --gold:#C9A84C; --gold-d:#A0782C;
@@ -98,7 +98,7 @@
   <div class="login-card">
     <div style="font-size:36px;margin-bottom:8px">🏰</div>
     <h1>後臺管理</h1>
-    <p>28天品牌故事挑戰</p>
+    <p>7天品牌故事挑戰</p>
     <div class="field" style="margin-top:16px">
       <label>管理員 PIN</label>
       <input id="adminPin" type="tel" inputmode="numeric" maxlength="6" placeholder="••••••" autocomplete="off"/>
@@ -111,7 +111,7 @@
 <!-- ── Main App ── -->
 <div id="app">
   <div class="topbar">
-    <h1>🏰 28天品牌故事 — 後臺</h1>
+    <h1>🏰 7天品牌故事 — 後臺</h1>
     <div class="topbar-right">
       <span id="topDate" style="font-size:12px;color:rgba(201,168,76,.7)"></span>
       <button class="topbar-btn" onclick="logout()">登出</button>
@@ -294,34 +294,36 @@ function getDayFromDate(startDate) {
 }
 
 function renderOverview() {
-  const todayDay  = getDayFromDate(cfg.start_date);
+  const TOTAL = 7;
   const totalDone = allTasks.filter(t => t.response).length;
   const totalMem  = allMembers.length;
-  const todayDone = allTasks.filter(t => t.day_index === todayDay && t.response).length;
+  const doneByMem = {};
+  allTasks.forEach(t => { if (t.response) doneByMem[t.member_id] = (doneByMem[t.member_id] || 0) + 1; });
+  const finished = allMembers.filter(m => (doneByMem[m.id] || 0) >= TOTAL).length;
 
-  document.getElementById('todayDayBadge').textContent = 'Day ' + todayDay;
+  document.getElementById('todayDayBadge').textContent = '共 ' + TOTAL + ' 天';
 
-  // Stats
+  // Stats（每人各自進度）
   document.getElementById('statsGrid').innerHTML = [
     { n: totalMem,  l: '總成員數' },
     { n: totalDone, l: '累計完成任務' },
-    { n: todayDone, l: '今日完成人數' },
-    { n: totalMem > 0 ? Math.round(totalDone / (totalMem * 28) * 100) + '%' : '0%', l: '整體完成率' },
+    { n: finished,  l: '完成全部人數' },
+    { n: totalMem > 0 ? Math.round(totalDone / (totalMem * TOTAL) * 100) + '%' : '0%', l: '整體完成率' },
   ].map(s => `<div class="stat-card"><div class="stat-num">${s.n}</div><div class="stat-lbl">${s.l}</div></div>`).join('');
 
-  // Today list
-  const todayMemIds = new Set(allTasks.filter(t => t.day_index === todayDay && t.response).map(t => t.member_id));
+  // 每位夥伴的個人進度
   const rows = allMembers.map(m => {
-    const done = todayMemIds.has(m.id);
+    const dn = doneByMem[m.id] || 0;
+    const full = dn >= TOTAL;
     return `<tr>
       <td>${m.name}</td>
-      <td><span class="badge ${done?'badge-done':'badge-pending'}">${done?'✅ 已完成':'⏳ 未完成'}</span></td>
-      <td>${allTasks.filter(t => t.member_id === m.id && t.response).length} / 28 天</td>
+      <td><span class="badge ${full?'badge-done':'badge-pending'}">${full?'✅ 全部完成':'⏳ 進行中'}</span></td>
+      <td>${dn} / ${TOTAL} 天</td>
     </tr>`;
   }).join('');
 
   document.getElementById('todayList').innerHTML = rows
-    ? `<table><thead><tr><th>成員</th><th>今日狀態</th><th>累計</th></tr></thead><tbody>${rows}</tbody></table>`
+    ? `<table><thead><tr><th>成員</th><th>狀態</th><th>個人進度</th></tr></thead><tbody>${rows}</tbody></table>`
     : '<div class="empty">還沒有成員</div>';
 }
 
@@ -332,7 +334,7 @@ function renderMembers() {
 
   const rows = allMembers.map(m => {
     const done = allTasks.filter(t => t.member_id === m.id && t.response).length;
-    const pct  = Math.round(done / 28 * 100);
+    const pct  = Math.round(done / 7 * 100);
     const bp   = m.bazi_profile;
     return `<tr>
       <td><strong>${m.name}</strong></td>
@@ -340,7 +342,7 @@ function renderMembers() {
       <td>
         <div style="display:flex;align-items:center;gap:8px">
           <div class="pbar-wrap"><div class="pbar-fill" style="width:${pct}%"></div></div>
-          <span style="font-size:12px;white-space:nowrap">${done}/28</span>
+          <span style="font-size:12px;white-space:nowrap">${done}/7</span>
         </div>
       </td>
       <td>${new Date(m.created_at).toLocaleDateString('zh-TW')}</td>
@@ -368,12 +370,8 @@ function openMember(id) {
   document.getElementById('detailSub').textContent = `共完成 ${myTasks.length} 天`;
 
   const TASK_TITLES = {
-    1:'旅程起點',2:'你的身份標籤',3:'真正的你',4:'你的隱藏天賦',5:'你的陰影面',6:'核心身份宣言',
-    7:'你的表達方式',8:'你的轉折故事',9:'你的迷你課',10:'你的品牌作品',11:'未寄出的信',
-    12:'你的隱形資源',13:'重新定義財富',14:'你的時間真相',15:'你的感恩帳',16:'資源槓桿計劃',
-    17:'你的影響力時刻',18:'你改變了誰',19:'你的使命召喚',20:'你的核心訊息',21:'影響力宣言',
-    22:'改變你的那本書',23:'你的非正式老師',24:'你的直覺',25:'失敗的禮物',26:'智慧傳承',
-    27:'28天回望',28:'我的品牌故事',
+    1:'認識真實的你',2:'你的天賦與熱情',3:'你的故事與轉折',4:'你的價值與資源',
+    5:'你想幫助誰',6:'你的影響力與使命',7:'你的品牌宣言',
   };
 
   document.getElementById('detailSubmissions').innerHTML = myTasks.length
@@ -401,7 +399,7 @@ function closeMemberDetail() {
 // ── Days ──
 function renderDays() {
   const totalMem = allMembers.length || 1;
-  const cells = Array.from({ length: 28 }, (_, i) => {
+  const cells = Array.from({ length: 7 }, (_, i) => {
     const d    = i + 1;
     const done = allTasks.filter(t => t.day_index === d && t.response).length;
     const pct  = Math.round(done / totalMem * 100);
