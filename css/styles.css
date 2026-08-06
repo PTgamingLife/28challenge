@@ -1392,3 +1392,23 @@ body {
   line-height: 1.5;
   margin: 0;
 }
+
+/* ===== 選擇題（7 天 × 4 題）===== */
+.mc-q { margin-bottom: 18px; }
+.mc-qtitle { font-weight: 800; color: var(--ink); font-size: 15px; line-height: 1.6; margin-bottom: 8px; }
+.mc-opt {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--white); border: 2px solid var(--cream-dark); border-radius: var(--radius-sm);
+  padding: 10px 12px; margin-bottom: 8px; cursor: pointer;
+  transition: transform .12s, border-color .15s, background .15s, box-shadow .15s;
+}
+.mc-opt:hover { border-color: var(--gold); transform: translateX(2px); }
+.mc-opt.sel { border-color: var(--gold); background: var(--gold-glow); box-shadow: 2px 2px 0 var(--gold-deep); }
+.mc-opt input { accent-color: var(--gold-deep); width: 18px; height: 18px; flex: 0 0 auto; cursor: pointer; }
+.mc-opt span { font-size: 14px; color: var(--ink-mid); font-weight: 600; }
+.mc-other span { color: var(--gold-deep); }
+.mc-other-input {
+  width: 100%; margin: -2px 0 8px; border: 2px solid var(--gold); border-radius: var(--radius-sm);
+  padding: 10px 12px; font-size: 14px; font-family: inherit; background: var(--white); color: var(--ink);
+}
+.mc-other-input:focus { outline: none; box-shadow: 0 0 0 3px var(--gold-glow); }

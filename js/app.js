@@ -44,12 +44,65 @@ App.renderPrompt = (text) => {
 /* ── Quadrant colour helper ── */
 App.qColor = (id) => ['#C0392B','#8E44AD','#27AE60','#2980B9','#E67E22'][id] || '#C9A84C';
 
+/* ── 選擇題（3 選項 + 自填）表單：建構 / 綁定 / 讀取 / 轉文字 ── */
+App.buildQuestions = (day, answers) => {
+  const D = DATA28.getDay(day);
+  return D.questions.map((qq, i) => {
+    const cur = (answers && answers[i]) || '';
+    const isCustom = !!cur && !qq.options.includes(cur);
+    const opts = qq.options.map(o => `
+      <label class="mc-opt${cur === o ? ' sel' : ''}">
+        <input type="radio" name="q${day}_${i}" value="${App.esc(o)}" ${cur === o ? 'checked' : ''}>
+        <span>${App.esc(o)}</span>
+      </label>`).join('');
+    return `<div class="mc-q" data-qi="${i}">
+      <div class="mc-qtitle">${i + 1}. ${App.esc(qq.q)}</div>
+      ${opts}
+      <label class="mc-opt mc-other${isCustom ? ' sel' : ''}">
+        <input type="radio" name="q${day}_${i}" value="__other__" ${isCustom ? 'checked' : ''}>
+        <span>✍️ 其他（自填）</span>
+      </label>
+      <input type="text" class="mc-other-input" data-qi="${i}" maxlength="120" placeholder="輸入你的答案…" value="${isCustom ? App.esc(cur) : ''}" style="${isCustom ? '' : 'display:none'}">
+    </div>`;
+  }).join('');
+};
+App.wireQuestions = (container) => {
+  container.querySelectorAll('.mc-q').forEach(qd => {
+    const other = qd.querySelector('.mc-other-input');
+    qd.querySelectorAll('input[type=radio]').forEach(r => {
+      r.addEventListener('change', () => {
+        qd.querySelectorAll('.mc-opt').forEach(l => l.classList.remove('sel'));
+        const lab = r.closest('.mc-opt'); if (lab) lab.classList.add('sel');
+        if (r.value === '__other__') { other.style.display = 'block'; other.focus(); }
+        else { other.style.display = 'none'; }
+      });
+    });
+  });
+};
+App.readAnswers = (container, day) => {
+  const D = DATA28.getDay(day);
+  const out = [];
+  for (let i = 0; i < D.questions.length; i++) {
+    const sel = container.querySelector(`input[name="q${day}_${i}"]:checked`);
+    if (!sel) { out.push(''); continue; }
+    if (sel.value === '__other__') {
+      const inp = container.querySelector(`.mc-other-input[data-qi="${i}"]`);
+      out.push((inp && inp.value || '').trim());
+    } else out.push(sel.value);
+  }
+  return out;
+};
+App.answersToResponse = (day, answers) => {
+  const D = DATA28.getDay(day);
+  return D.questions.map((qq, i) => `${i + 1}. ${qq.q}\n→ ${(answers[i] || '（未答）')}`).join('\n\n');
+};
+
 /* ── Day calculation ── */
 App.dayFromDate = () => {
   const start = new Date(App.cfg.start_date + 'T00:00:00');
   const now   = new Date(); now.setHours(0,0,0,0);
   const diff  = Math.floor((now - start) / 86400000) + 1;
-  return Math.max(1, Math.min(28, diff));
+  return Math.max(1, Math.min(DATA28.TOTAL_DAYS, diff));
 };
 
 /* ── SHA-256 (for PIN hashing — optional, kept simple) ── */
@@ -102,10 +155,10 @@ App.db = {
     const { data } = await App.sb.from('bazi28_tasks').select('*').eq('member_id',App.me.id).eq('day_index',day).maybeSingle();
     return data;
   },
-  async saveTask(day, response) {
+  async saveTask(day, response, answers) {
     const { error } = await App.sb.from('bazi28_tasks').upsert({
       member_id:App.me.id, member_name:App.me.name, day_index:day,
-      response, completed_at:new Date().toISOString(),
+      response, answers: answers || [], completed_at:new Date().toISOString(),
     }, { onConflict:'member_id,day_index' });
     if (error) throw error;
   },
@@ -366,7 +419,7 @@ function enterApp() {
   $('#app').classList.remove('hidden');
   showPage('task');
   subscribePraises();
-  setTimeout(() => checkDay5Milestone(), 900);
+  // 7 天版不再使用第 5 天里程碑卡
 }
 
 function subscribePraises() {
@@ -751,7 +804,7 @@ async function generateBrandStory() {
     });
     if (!res.ok) throw new Error();
     const { story } = await res.json();
-    const ta = document.getElementById('taskResponse');
+    const ta = document.getElementById('brandStory');
     if (ta) { ta.value = story; ta.dispatchEvent(new Event('input')); ta.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
     App.toast('品牌故事已生成！你可以繼續編輯後提交。✨', 3500);
     btn.innerHTML = '<span>✨ 重新生成</span>';
@@ -826,102 +879,82 @@ async function renderTaskPage() {
   const pg = $('#page-task');
   pg.innerHTML = '<div class="empty-tip"><span class="spinning">⏳</span> 載入任務中…</div>';
 
-  const task     = DATA28.getTask(App.todayDay);
-  const existing = await App.db.getMyTask(App.todayDay);
-  const ctx      = App.bazi ? DATA28.getPersonalizedContext(task, App.bazi.profile.percents) : null;
-
-  // Determine accent colours
-  let accentColor = '#C9A84C', accentIcon = task.icon;
-  if (task.type === 'quadrant') {
-    accentColor = DATA28.QUADRANTS[task.quadrantId].color;
-  }
+  const day      = App.todayDay;
+  const D        = DATA28.getDay(day);
+  const total    = DATA28.TOTAL_DAYS;
+  const existing = await App.db.getMyTask(day);
+  const answers  = (existing && Array.isArray(existing.answers) && existing.answers.length) ? existing.answers : [];
+  const isLast   = day === total;
 
   const doneCount = (await App.db.myTasks()).filter(t => t.response).length;
-  const pct = Math.round(doneCount / 28 * 100);
+  const pct = Math.round(doneCount / total * 100);
+  const brandStory = isLast ? await App.db.getMilestone('brand_story') : null;
 
   pg.innerHTML = `
-    <!-- Hero card -->
     <div class="card-hero">
       <div class="speed-lines"></div>
       <div class="task-day-header">
-        <span class="task-day-no">Day ${App.todayDay} / 28</span>
-        ${task.type === 'quadrant' ? `<span class="task-quadrant-chip" style="background:${accentColor}">${DATA28.QUADRANTS[task.quadrantId].name}</span>` : ''}
-        ${task.type === 'warmup'   ? `<span class="task-quadrant-chip" style="background:#C9A84C;color:#1A0F00">暖身</span>` : ''}
-        ${task.type === 'summary'  ? `<span class="task-quadrant-chip" style="background:#8B6B1A">大總結</span>` : ''}
-        ${task.type === 'brand'    ? `<span class="task-quadrant-chip" style="background:linear-gradient(135deg,#C0392B,#8E44AD)">品牌故事</span>` : ''}
+        <span class="task-day-no">Day ${day} / ${total}</span>
+        <span class="task-quadrant-chip" style="background:${D.color}">${D.icon} ${App.esc(D.title)}</span>
       </div>
-      ${task.type === 'quadrant' ? `<div class="task-quadrant-label">${task.icon} ${DATA28.QUADRANTS[task.quadrantId].subtitle}</div>` : ''}
-      <div class="task-title">${App.esc(task.title)}</div>
+      <div class="task-title">${D.icon} ${App.esc(D.title)}</div>
       <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
-      <div class="progress-label">${doneCount} / 28 天完成 · ${pct}%</div>
-      ${ctx ? `<div class="task-context-box">${App.esc(ctx)}</div>` : ''}
+      <div class="progress-label">${doneCount} / ${total} 天完成 · ${pct}%</div>
     </div>
 
-    <!-- Prompt card -->
     <div class="card" id="promptCard">
       <div class="card-title-row">
-        <span class="card-title">${task.icon} 今日任務</span>
+        <span class="card-title">📝 今日 4 題挑戰</span>
         <button class="teacher-btn" id="teacherBtn">🤖 小老師</button>
       </div>
-      ${App.renderPrompt(task.prompt)}
-      ${task.type === 'brand' ? `<div class="ai-gen-section">
-        <p class="ai-gen-hint">根據你過去 27 天的所有記錄，AI 將生成你的專屬品牌故事</p>
-        <button class="btn btn-gold btn-block" id="aiGenBtn" style="margin-top:6px"><span>✨ AI 幫我生成品牌故事</span></button>
-      </div>` : ''}
-    </div>
-
-    <!-- Response area -->
-    <div class="card">
-      <div class="card-title">✍️ 寫下你的故事</div>
-      ${existing?.response ? `<div class="task-already-done">✅ 今天已完成！你可以繼續編輯。</div>` : ''}
-      <div class="task-textarea-wrap" style="margin-top:10px">
-        <textarea class="task-textarea" id="taskResponse" placeholder="在這裡寫下你的故事……不需要完美，只需要真實。">${App.esc(existing?.response || '')}</textarea>
-        <span class="word-count" id="wordCount">0 字</span>
-      </div>
-      <button class="btn btn-gold btn-block" id="saveTaskBtn" style="margin-top:12px">
-        <span>${existing?.response ? '更新故事 ✨' : '提交今日故事 ✨'}</span>
+      <p class="empty-tip" style="margin:2px 0 10px">每題選一個最貼近你的答案，或選「其他」自己寫。</p>
+      <div id="mcForm">${App.buildQuestions(day, answers)}</div>
+      ${existing?.response ? `<div class="task-already-done" style="margin-top:10px">✅ 今天已完成！可以隨時修改。</div>` : ''}
+      <button class="btn btn-gold btn-block" id="saveTaskBtn" style="margin-top:14px">
+        <span>${existing?.response ? '更新答案 ✨' : '提交今日答案 ✨'}</span>
       </button>
     </div>
-    ${App.todayDay === 28 && App.bazi ? renderAIEraSectionHtml(App.bazi) : ''}
+
+    ${isLast ? `
+    <div class="card">
+      <div class="card-title">👑 你的品牌故事</div>
+      <p class="ai-gen-hint">根據你這 7 天的所有答案，AI 會幫你寫出專屬品牌故事，你可以再編輯。</p>
+      <button class="btn btn-gold btn-block" id="aiGenBtn" style="margin-top:6px"><span>✨ AI 幫我生成品牌故事</span></button>
+      <textarea class="task-textarea" id="brandStory" placeholder="按上面按鈕生成，或自己寫下你的品牌故事……" style="margin-top:12px">${App.esc(brandStory?.content?.story || '')}</textarea>
+      <button class="btn btn-outline btn-block btn-sm" id="saveStoryBtn" style="margin-top:10px"><span>${brandStory ? '更新品牌故事' : '儲存品牌故事'}</span></button>
+    </div>` : ''}
   `;
 
-  // Word count
-  const ta = $('#taskResponse'), wc = $('#wordCount');
-  const updateWC = () => {
-    const n = ta.value.replace(/\s/g,'').length;
-    wc.textContent = n + ' 字';
-    wc.classList.toggle('over', n > 1200);
-  };
-  ta.addEventListener('input', updateWC);
-  updateWC();
+  App.wireQuestions($('#mcForm'));
+  $('#teacherBtn').onclick = () => showTeacherModal(DATA28.getTask(day));
 
-  // Teacher button
-  $('#teacherBtn').onclick = () => showTeacherModal(task);
-
-  // AI gen (Day 28)
-  if (task.type === 'brand') {
-    const aiGenBtn = $('#aiGenBtn');
-    if (aiGenBtn) aiGenBtn.onclick = generateBrandStory;
-  }
-
-  // Save
   $('#saveTaskBtn').onclick = async () => {
-    const text = $('#taskResponse').value.trim();
-    if (text.length < 20) return App.toast('請寫多一點（至少20字）😊');
-    const btn = $('#saveTaskBtn'); btn.disabled = true;
-    $('span',btn).textContent = '儲存中…';
+    const ans = App.readAnswers($('#mcForm'), day);
+    const answered = ans.filter(a => a).length;
+    if (answered < D.questions.length) return App.toast(`還有 ${D.questions.length - answered} 題沒作答喔 😊`);
+    const btn = $('#saveTaskBtn'); btn.disabled = true; $('span', btn).textContent = '儲存中…';
     try {
-      await App.db.saveTask(App.todayDay, text);
-      App.toast('故事已記錄！🌟');
+      await App.db.saveTask(day, App.answersToResponse(day, ans), ans);
+      App.toast('今日挑戰完成！🌟');
       launchConfetti();
-      $('span',btn).textContent = '更新故事 ✨';
-      // Re-render to show "done" badge
       await renderTaskPage();
-    } catch(e) {
-      App.toast('儲存失敗，請重試');
-      btn.disabled = false; $('span',btn).textContent = '提交今日故事 ✨';
+    } catch (e) {
+      App.toast('儲存失敗，請重試'); btn.disabled = false; $('span', btn).textContent = '提交今日答案 ✨';
     }
   };
+
+  if (isLast) {
+    const gen = $('#aiGenBtn'); if (gen) gen.onclick = generateBrandStory;
+    const ss = $('#saveStoryBtn');
+    if (ss) ss.onclick = async () => {
+      const story = ($('#brandStory').value || '').trim();
+      if (story.length < 20) return App.toast('故事再多寫一點吧 😊');
+      ss.disabled = true;
+      try { await App.db.saveMilestone('brand_story', { story }); App.toast('品牌故事已儲存 👑'); }
+      catch (e) { App.toast('儲存失敗'); }
+      finally { ss.disabled = false; }
+    };
+  }
 }
 
 /* ════════════════════════════════════════
@@ -931,54 +964,45 @@ async function renderRecordPage() {
   const pg = $('#page-record');
   pg.innerHTML = '<div class="empty-tip"><span class="spinning">⏳</span> 載入記錄中…</div>';
 
-  const [tasks, milestone] = await Promise.all([
+  const total = DATA28.TOTAL_DAYS;
+  const [tasks, brandStory] = await Promise.all([
     App.db.myTasks(),
-    App.db.getMilestone('day5_card'),
+    App.db.getMilestone('brand_story'),
   ]);
   const doneMap = {};
   tasks.forEach(t => { if (t.response) doneMap[t.day_index] = t; });
 
-  const cells = Array.from({length:28}, (_,i) => {
+  const cells = Array.from({length: total}, (_,i) => {
     const d = i+1;
-    const task = DATA28.getTask(d);
+    const D = DATA28.getDay(d);
     const done = doneMap[d];
     const isToday = d === App.todayDay;
     const isFuture = d > App.todayDay;
     const cls = done ? 'done' : isToday ? 'today' : isFuture ? 'future' : '';
-    const bg  = done && task.quadrantId != null ? App.qColor(task.quadrantId) : '';
-    const excerpt = done ? done.response.slice(0,40) + '…' : '';
+    const bg  = done ? D.color : '';
     return `<div class="record-cell ${cls}" data-day="${d}"
               ${bg ? `style="background:${bg};border-color:${bg}"` : ''}>
       <div class="record-cell-day">Day ${d}</div>
-      <div class="record-cell-icon">${task.icon}</div>
-      ${done ? `<div class="record-cell-excerpt">${App.esc(excerpt)}</div>` : ''}
+      <div class="record-cell-icon">${D.icon}</div>
+      ${done ? `<div class="record-cell-excerpt">${App.esc(D.title)}</div>` : ''}
     </div>`;
   }).join('');
 
-  const milestoneHtml = milestone ? `
+  const storyHtml = (brandStory && brandStory.content && brandStory.content.story) ? `
     <div class="milestone-record-card">
-      <div class="milestone-record-badge">✨ 第5天・品牌人設卡</div>
-      <div class="milestone-record-character">${App.esc(milestone.content.character || '')}</div>
-      <div class="milestone-record-advantage">${App.esc(milestone.content.advantage || '')}</div>
-      <div class="milestone-record-tags">
-        ${(milestone.content.tags || []).map(t => `<span class="milestone-record-tag">${App.esc(t)}</span>`).join('')}
-      </div>
-      <button class="btn btn-gold btn-block" id="milestoneViewBtn" style="margin-top:14px"><span>🖼️ 查看 & 下載圖片</span></button>
+      <div class="milestone-record-badge">👑 我的品牌故事</div>
+      <div class="record-detail-text" style="margin-top:6px;white-space:pre-wrap">${App.esc(brandStory.content.story)}</div>
     </div>
   ` : '';
 
   pg.innerHTML = `
-    ${milestoneHtml}
+    ${storyHtml}
     <div class="card">
-      <div class="card-title">📜 我的28天記錄</div>
+      <div class="card-title">📜 我的 7 天記錄</div>
       <div class="record-grid">${cells}</div>
     </div>
     <div id="recordDetail"></div>
   `;
-
-  if (milestone) {
-    $('#milestoneViewBtn', pg).onclick = () => showMilestonePopup(milestone.content);
-  }
 
   $$('.record-cell:not(.future)', pg).forEach(cell => {
     cell.addEventListener('click', () => showRecordDetail(+cell.dataset.day, doneMap, pg));
@@ -1016,8 +1040,8 @@ function _renderRecordView(day, done, task, det, doneMap, pg) {
           <div class="record-detail-day">完成於 ${date} ${q?`· ${q.name}`:''}</div>
         </div>
       </div>
-      <div class="record-detail-text">${App.esc(done.response)}</div>
-      <button class="btn btn-outline btn-block btn-sm" id="editRecordBtn" style="margin-top:12px">✏️ 修改這天的故事</button>
+      <div class="record-detail-text" style="white-space:pre-wrap">${App.esc(done.response)}</div>
+      <button class="btn btn-outline btn-block btn-sm" id="editRecordBtn" style="margin-top:12px">✏️ 修改這天的答案</button>
     </div>
   `;
   $('#editRecordBtn', det).onclick = () => _renderRecordEdit(day, task, done.response, det, doneMap, pg);
@@ -1026,73 +1050,63 @@ function _renderRecordView(day, done, task, det, doneMap, pg) {
 
 function _renderRecordEdit(day, task, existing, det, doneMap, pg) {
   const ac    = _accentFor(task);
-  const isNew = !existing;
+  const D     = DATA28.getDay(day);
+  const prev  = doneMap[day];
+  const isNew = !prev;
+  const answers = (prev && Array.isArray(prev.answers) && prev.answers.length) ? prev.answers : [];
 
   det.innerHTML = `
     <div class="record-detail-card" style="border-color:${ac};box-shadow:3px 3px 0 ${ac}">
       <div class="record-detail-header">
-        <div class="record-detail-icon">${task.icon}</div>
+        <div class="record-detail-icon">${D.icon}</div>
         <div>
-          <div class="record-detail-title">Day ${day} · ${App.esc(task.title)}</div>
-          <div class="record-detail-day" style="color:${ac}">${isNew ? '補填記錄' : '修改記錄'}</div>
+          <div class="record-detail-title">Day ${day} · ${App.esc(D.title)}</div>
+          <div class="record-detail-day" style="color:${ac}">${isNew ? '補填 4 題' : '修改 4 題'}</div>
         </div>
       </div>
-      <div class="record-edit-prompt">${App.renderPrompt(task.prompt)}</div>
-      <div class="task-textarea-wrap" style="margin-top:10px">
-        <textarea class="task-textarea" id="recEditTA" placeholder="在這裡寫下你的故事……">${App.esc(existing)}</textarea>
-        <span class="word-count" id="recEditWC">0 字</span>
-      </div>
+      <div id="recMcForm" style="margin-top:10px">${App.buildQuestions(day, answers)}</div>
       <div style="display:flex;gap:8px;margin-top:12px">
         ${!isNew ? `<button class="btn btn-outline btn-block" id="recCancelBtn" style="flex:0 0 80px">取消</button>` : ''}
-        <button class="btn btn-gold btn-block" id="recSaveBtn"><span>${isNew ? '儲存記錄 ✨' : '更新故事 ✨'}</span></button>
+        <button class="btn btn-gold btn-block" id="recSaveBtn"><span>${isNew ? '儲存答案 ✨' : '更新答案 ✨'}</span></button>
       </div>
     </div>
   `;
 
-  const ta = $('#recEditTA', det);
-  const wc = $('#recEditWC', det);
-  const updateWC = () => { wc.textContent = ta.value.replace(/\s/g,'').length + ' 字'; };
-  ta.addEventListener('input', updateWC);
-  updateWC();
+  App.wireQuestions($('#recMcForm', det));
 
   if (!isNew) {
     $('#recCancelBtn', det).onclick = () => _renderRecordView(day, doneMap[day], task, det, doneMap, pg);
   }
 
   $('#recSaveBtn', det).onclick = async () => {
-    const text = ta.value.trim();
-    if (text.length < 20) return App.toast('請寫多一點（至少20字）😊');
+    const ans = App.readAnswers($('#recMcForm', det), day);
+    const answered = ans.filter(a => a).length;
+    if (answered < D.questions.length) return App.toast(`還有 ${D.questions.length - answered} 題沒作答喔 😊`);
     const btn = $('#recSaveBtn', det); btn.disabled = true;
     $('span', btn).textContent = '儲存中…';
     try {
-      await App.db.saveTask(day, text);
-      App.toast(isNew ? `Day ${day} 記錄已補填！🌟` : '故事已更新！🌟');
+      await App.db.saveTask(day, App.answersToResponse(day, ans), ans);
+      App.toast(isNew ? `Day ${day} 已補填！🌟` : '答案已更新！🌟');
       const updated = await App.db.getMyTask(day);
       if (updated) doneMap[day] = updated;
-      // Refresh grid cell
       const cell = $(`.record-cell[data-day="${day}"]`, pg);
       if (cell) {
         cell.classList.add('done');
         cell.classList.remove('today');
-        if (task.quadrantId != null) {
-          const c = App.qColor(task.quadrantId);
-          cell.style.background = c; cell.style.borderColor = c;
-        }
+        cell.style.background = D.color; cell.style.borderColor = D.color;
         const excerpEl = cell.querySelector('.record-cell-excerpt');
-        const excerpt = text.slice(0,40) + '…';
-        if (excerpEl) excerpEl.textContent = excerpt;
-        else cell.insertAdjacentHTML('beforeend', `<div class="record-cell-excerpt">${App.esc(excerpt)}</div>`);
+        if (excerpEl) excerpEl.textContent = D.title;
+        else cell.insertAdjacentHTML('beforeend', `<div class="record-cell-excerpt">${App.esc(D.title)}</div>`);
       }
       _renderRecordView(day, updated, task, det, doneMap, pg);
     } catch(_) {
       App.toast('儲存失敗，請重試');
       btn.disabled = false;
-      $('span', btn).textContent = isNew ? '儲存記錄 ✨' : '更新故事 ✨';
+      $('span', btn).textContent = isNew ? '儲存答案 ✨' : '更新答案 ✨';
     }
   };
 
   det.scrollIntoView({ behavior:'smooth' });
-  setTimeout(() => ta.focus(), 300);
 }
 
 /* ════════════════════════════════════════
@@ -1145,12 +1159,12 @@ async function renderSocialPage() {
         <span class="galaxy-stat-n">${doneCount}</span>
         <span class="galaxy-stat-lbl">顆星點亮</span>
         <span class="galaxy-stat-sep">·</span>
-        <span class="galaxy-stat-n">${28 - doneCount}</span>
+        <span class="galaxy-stat-n">${DATA28.TOTAL_DAYS - doneCount}</span>
         <span class="galaxy-stat-lbl">顆待發光</span>
       </div>
       <div class="galaxy-legend">
-        <span class="galaxy-legend-item"><span class="galaxy-legend-dot" style="background:#C9A84C"></span>核心</span>
-        ${DATA28.QUADRANTS.map(q => `<span class="galaxy-legend-item"><span class="galaxy-legend-dot" style="background:${q.color}"></span>${q.name}</span>`).join('')}
+        <span class="galaxy-legend-item"><span class="galaxy-legend-dot" style="background:#C9A84C"></span>已點亮（完成當天）</span>
+        <span class="galaxy-legend-item"><span class="galaxy-legend-dot" style="background:#3a3358"></span>待點亮</span>
       </div>
       <div class="galaxy-svg-wrap" id="galaxySvgWrap"></div>
       <button class="btn btn-gold btn-block" id="dlBookshelfBtn" style="margin-top:16px"><span>📖 下載星系紀念冊（HTML）</span></button>
@@ -1187,12 +1201,7 @@ async function renderSocialPage() {
 function galaxySVGString(doneMap, member) {
   const W = 380, H = 380, CX = 190, CY = 190;
   const RINGS = [
-    { r: 46,  qId: -1, color: '#C9A84C', days: [1, 27, 28] },
-    { r: 78,  qId: 0,  color: '#C0392B', days: [2,3,4,5,6] },
-    { r: 106, qId: 1,  color: '#8E44AD', days: [7,8,9,10,11] },
-    { r: 132, qId: 2,  color: '#27AE60', days: [12,13,14,15,16] },
-    { r: 156, qId: 3,  color: '#2980B9', days: [17,18,19,20,21] },
-    { r: 177, qId: 4,  color: '#E67E22', days: [22,23,24,25,26] },
+    { r: 122, qId: -1, color: '#C9A84C', days: [1, 2, 3, 4, 5, 6, 7] },
   ];
   const uid = Math.floor(Math.random() * 1e9);
   let svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;max-width:380px">
@@ -1283,12 +1292,7 @@ function keepsakeGalaxy(mountId, DONE, AVATAR) {
   scene.add(new THREE.Points(bg, new THREE.PointsMaterial({ color: 0xffffff, size: 0.09 })));
 
   var RINGS = [
-    { r: 1.25, hex: 0xC9A84C, speed: 0.012, core: true, days: [1, 27, 28] },
-    { r: 2.05, hex: 0xC0392B, speed: 0.009, days: [2, 3, 4, 5, 6] },
-    { r: 2.78, hex: 0x8E44AD, speed: 0.007, days: [7, 8, 9, 10, 11] },
-    { r: 3.48, hex: 0x27AE60, speed: 0.0055, days: [12, 13, 14, 15, 16] },
-    { r: 4.10, hex: 0x2980B9, speed: 0.0042, days: [17, 18, 19, 20, 21] },
-    { r: 4.65, hex: 0xE67E22, speed: 0.0032, days: [22, 23, 24, 25, 26] }
+    { r: 3.1, hex: 0xC9A84C, speed: 0.02, core: true, days: [1, 2, 3, 4, 5, 6, 7] }
   ];
   RINGS.forEach(function (ring) {
     var pts = [];
@@ -1376,7 +1380,7 @@ function downloadBookshelf(member, doneMap, doneCount) {
 
   const starData = {};
   let recs = '';
-  for (let d = 1; d <= 28; d++) {
+  for (let d = 1; d <= DATA28.TOTAL_DAYS; d++) {
     const row = doneMap[d];
     if (!row || !row.response) continue;
     const t = DATA28.getTask(d);
@@ -1435,11 +1439,11 @@ function downloadBookshelf(member, doneMap, doneCount) {
       <div class="ava">${avatar}</div>
       <h1>${App.esc(name)} 的星系紀念冊</h1>
       <div class="sub">28 天品牌故事挑戰</div>
-      <div class="stat">✨ 點亮了 ${doneCount} / 28 顆星</div>
+      <div class="stat">✨ 點亮了 ${doneCount} / ${DATA28.TOTAL_DAYS} 顆星</div>
     </header>
     <div class="galaxy"><div style="width:100%"><div id="galaxyMount" class="galaxy-mount">${svg}</div></div></div>
     <div id="galaxyHint" class="galaxy-hint">✋ 拖曳旋轉 · 滾輪／雙指縮放 · 點星星看故事</div>
-    <div class="sec-title">我的 28 天故事</div>
+    <div class="sec-title">我的 7 天故事</div>
     ${recs}
     <footer>於 ${today} 生成 · 願你的品牌之光持續閃耀 🌟</footer>
   </div>
@@ -1481,12 +1485,7 @@ function buildGalaxySVG(doneMap, member) {
   const W = 380, H = 380, CX = 190, CY = 190;
 
   const RINGS = [
-    { r: 46,  qId: -1, color: '#C9A84C', days: [1, 27, 28] },
-    { r: 78,  qId: 0,  color: '#C0392B', days: [2,3,4,5,6] },
-    { r: 106, qId: 1,  color: '#8E44AD', days: [7,8,9,10,11] },
-    { r: 132, qId: 2,  color: '#27AE60', days: [12,13,14,15,16] },
-    { r: 156, qId: 3,  color: '#2980B9', days: [17,18,19,20,21] },
-    { r: 177, qId: 4,  color: '#E67E22', days: [22,23,24,25,26] },
+    { r: 122, qId: -1, color: '#C9A84C', days: [1, 2, 3, 4, 5, 6, 7] },
   ];
 
   const uid = Math.floor(Math.random() * 1e9);
@@ -1628,12 +1627,7 @@ function buildGalaxy3D(doneMap, member) {
   }
 
   const RINGS = [
-    { r: 1.25, qId: -1, hex: 0xC9A84C, speed: 0.012, days: [1, 27, 28] },
-    { r: 2.05, qId: 0,  hex: 0xC0392B, speed: 0.009, days: [2,3,4,5,6] },
-    { r: 2.78, qId: 1,  hex: 0x8E44AD, speed: 0.007, days: [7,8,9,10,11] },
-    { r: 3.48, qId: 2,  hex: 0x27AE60, speed: 0.0055, days: [12,13,14,15,16] },
-    { r: 4.10, qId: 3,  hex: 0x2980B9, speed: 0.0042, days: [17,18,19,20,21] },
-    { r: 4.65, qId: 4,  hex: 0xE67E22, speed: 0.0032, days: [22,23,24,25,26] },
+    { r: 3.1, qId: -1, hex: 0xC9A84C, speed: 0.02, days: [1, 2, 3, 4, 5, 6, 7] },
   ];
 
   // Static orbital guide lines

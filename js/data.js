@@ -453,7 +453,64 @@ window.DATA28 = (function () {
     };
   }
 
-  function getTask(day) { return TASKS[day - 1] || TASKS[0]; }
+  // ===== 7 天 × 每天 4 題（選擇題：3 預設選項 + 自填）=====
+  const DAYS = [
+    { day:1, title:'認識真實的你', icon:'🔥', color:'#C0392B', questions:[
+      { q:'別人第一次認識你，最容易記住你哪一點？', options:['專業與能力','個性與溫度','故事與經歷'] },
+      { q:'你最想被形容成哪一種人？', options:['值得信賴的專家','溫暖有力量的陪伴者','敢衝敢夢的行動派'] },
+      { q:'什麼事做起來讓你忘記時間、最有成就感？', options:['解決別人的難題','創造與分享','帶一群人前進'] },
+      { q:'用一個詞當你的個人標籤，你選？', options:['專業可靠','真誠溫暖','熱情突破'] },
+    ]},
+    { day:2, title:'你的天賦與熱情', icon:'✨', color:'#E67E22', questions:[
+      { q:'你天生就比別人擅長的是？', options:['分析解決問題','表達感染他人','連結人與資源'] },
+      { q:'朋友有困難最常找你做什麼？', options:['給專業建議','安慰打氣','幫忙牽線找資源'] },
+      { q:'你最有熱情、願意一直做的主題？', options:['健康與生活','成長與心態','事業與財富'] },
+      { q:'你最大的隱藏天賦是？', options:['洞察力（看得深）','行動力（說做就做）','影響力（帶動人）'] },
+    ]},
+    { day:3, title:'你的故事與轉折', icon:'📖', color:'#8E44AD', questions:[
+      { q:'你人生最關鍵的一次轉折？', options:['一次重大低谷','一個改變你的人或機會','一個下定決心的瞬間'] },
+      { q:'那次經歷最大的收穫？', options:['學會某個能力','想通某個心態','找到人生方向'] },
+      { q:'你最想用故事帶給別人什麼？', options:['「你也做得到」的信心','「你不孤單」的陪伴','「換個方法」的啟發'] },
+      { q:'你希望別人記得你故事的關鍵字？', options:['逆轉突破','堅持陪伴','選擇改變'] },
+    ]},
+    { day:4, title:'你的價值與資源', icon:'💎', color:'#27AE60', questions:[
+      { q:'你最能幫別人解決的問題？', options:['身體健康／體態','心態情緒／關係','收入事業／方向'] },
+      { q:'你手上最強的資源籌碼？', options:['專業知識經驗','人脈與社群','個人故事與說服力'] },
+      { q:'別人為何會相信你、跟你買單？', options:['你夠專業','你真心為對方','你就是最好的見證'] },
+      { q:'你想用什麼形式提供價值？', options:['一對一諮詢服務','內容分享（影音圖文）','產品方案推薦'] },
+    ]},
+    { day:5, title:'你想幫助誰', icon:'🎯', color:'#2980B9', questions:[
+      { q:'你最想幫助哪一種人？', options:['想變健康變美的人','想成長突破的人','想創業賺更多的人'] },
+      { q:'這群人最大的痛點？', options:['缺方法缺工具','沒信心卡心態','沒人帶、孤軍奮戰'] },
+      { q:'他們最渴望的結果？', options:['看得見的具體改善','內在的踏實自信','自由（時間／金錢）'] },
+      { q:'為何「你」特別適合幫他們？', options:['我走過一樣的路','我有對的方法工具','我能一路陪著他們'] },
+    ]},
+    { day:6, title:'你的影響力與使命', icon:'🌍', color:'#16A085', questions:[
+      { q:'你做這件事最深的動機？', options:['實現自我價值','給家人更好的生活','幫助更多人、留下影響'] },
+      { q:'你希望三年後因你而改變的是？', options:['一群人更健康／更好','一群人更有自信／方向','一群人也開始助人'] },
+      { q:'你想成為別人生命中的什麼角色？', options:['領路的專家','同行的夥伴','點燈的啟發者'] },
+      { q:'只能留一句話給受眾，你會說？', options:['「相信自己，你可以」','「你不孤單，我陪你」','「行動吧，改變從現在」'] },
+    ]},
+    { day:7, title:'你的品牌宣言', icon:'👑', color:'#C9A84C', questions:[
+      { q:'一句話介紹你（我是＿，我幫＿）？', options:['專業型：解決具體問題','陪伴型：建立信心習慣','啟發型：看見新可能'] },
+      { q:'你的品牌最想給人的第一印象？', options:['專業可靠','溫暖真誠','熱血有能量'] },
+      { q:'接下來 30 天你想採取的第一步？', options:['開始分享內容','主動服務幾個人','打磨專業／產品'] },
+      { q:'走完這 7 天，你現在的狀態？', options:['更清楚我是誰','更有信心往前','準備好行動了'] },
+    ]},
+  ];
+  const TOTAL_DAYS = DAYS.length;
+  function getDay(day) { return DAYS[Math.max(1, Math.min(TOTAL_DAYS, day)) - 1]; }
+
+  // 回傳與舊介面相容的任務物件（供星系、記錄、小老師沿用）
+  function getTask(day) {
+    const D = getDay(day);
+    return {
+      day: D.day, title: D.title, icon: D.icon, color: D.color,
+      quadrantId: null, type: (D.day === TOTAL_DAYS ? 'brand' : 'quiz'),
+      questions: D.questions,
+      prompt: D.questions.map((qq, i) => `${i + 1}. ${qq.q}`).join('\n'),
+    };
+  }
 
   function getPersonalizedContext(task, percents) {
     if (task.type !== 'quadrant') return null;
@@ -469,5 +526,5 @@ window.DATA28 = (function () {
     return { text:'成長空間', cls:'energy-low' };
   }
 
-  return { QUADRANTS, TASKS, AVATARS, PRAISES, getTask, getPersonalizedContext, energyLabel, getAIEraAdvantage };
+  return { QUADRANTS, TASKS, DAYS, TOTAL_DAYS, AVATARS, PRAISES, getTask, getDay, getPersonalizedContext, energyLabel, getAIEraAdvantage };
 })();
